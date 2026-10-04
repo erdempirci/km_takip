@@ -4,30 +4,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
-  Car,
-  CheckCircle2,
-  AlertTriangle,
-  Plus,
-  Fuel,
-  RotateCw,
-  UserRound,
-  Gauge,
-  TrendingUp,
-  ShieldCheck,
-  Zap,
-  ArrowRight,
-  Clock3,
-  CalendarDays,
-  ChevronDown,
-  CircleDollarSign,
-  Route,
-  History,
-  X,
-  Check,
-  Info,
+  Car, Gauge, Plus, History, Wallet, CheckCircle2,
+  Clock3, RefreshCw, ArrowRight, Fuel, UserRound,
+  AlertTriangle, X, ChevronRight, Route, ShieldCheck
 } from 'lucide-react';
 
-type DriverName = 'Erdem Pirci' | 'Erdem Gündüz';
+type Driver = 'Erdem Pirci' | 'Erdem Gündüz';
 
 interface Drive {
   id: string;
@@ -40,74 +22,50 @@ interface Drive {
   created_at: string;
 }
 
-const DRIVERS: DriverName[] = ['Erdem Pirci', 'Erdem Gündüz'];
-
-const DAILY_WORK_KM = 60;
+const DRIVERS: Driver[] = ['Erdem Pirci', 'Erdem Gündüz'];
+const DAILY_KM = 60;
 const CONSUMPTION = 7.5;
 
-const formatNumber = (value: number) =>
-  new Intl.NumberFormat('tr-TR', {
-    maximumFractionDigits: 1,
-  }).format(value);
+const fmt = (n: number) =>
+  new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 }).format(n);
 
-const formatMoney = (value: number) =>
+const money = (n: number) =>
   new Intl.NumberFormat('tr-TR', {
     style: 'currency',
     currency: 'TRY',
     maximumFractionDigits: 2,
-  }).format(value);
+  }).format(n);
 
-const formatDate = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('tr-TR', {
+const dateFmt = (date: string) =>
+  new Intl.DateTimeFormat('tr-TR', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(date);
-};
+  }).format(new Date(date));
 
-function getPersonalKm(drive: Drive) {
-  const driven = Math.max(0, Number(drive.end_km) - Number(drive.start_km));
-  const allowance = Math.max(0, Number(drive.work_days)) * DAILY_WORK_KM;
-  return Math.max(0, driven - allowance);
-}
+const distance = (d: Drive) =>
+  Math.max(0, Number(d.end_km) - Number(d.start_km));
 
-function getDistance(drive: Drive) {
-  return Math.max(0, Number(drive.end_km) - Number(drive.start_km));
-}
+const personal = (d: Drive) =>
+  Math.max(0, distance(d) - Math.max(0, Number(d.work_days)) * DAILY_KM);
 
 export default function Home() {
   const [drives, setDrives] = useState<Drive[]>([]);
-  const [currentDriver, setCurrentDriver] =
-    useState<DriverName>('Erdem Pirci');
-
-  const [startKm, setStartKm] = useState('11000');
-  const [endKm, setEndKm] = useState('11000');
-  const [workDays, setWorkDays] = useState('5');
-
-  const [fuelPrice, setFuelPrice] = useState('45');
-  const [loading, setLoading] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(true);
+  const [driver, setDriver] = useState<Driver>('Erdem Pirci');
+  const [start, setStart] = useState('11000');
+  const [end, setEnd] = useState('11000');
+  const [days, setDays] = useState('1');
+  const [price, setPrice] = useState('45');
+  const [tab, setTab] = useState<'home' | 'history' | 'earnings'>('home');
+  const [filter, setFilter] = useState<'all' | 'pending' | 'approved'>('all');
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<{ text: string; type: 'ok' | 'error' } | null>(null);
 
-  const [notice, setNotice] = useState<{
-    type: 'success' | 'error' | 'info';
-    text: string;
-  } | null>(null);
-
-  const [historyFilter, setHistoryFilter] = useState<
-    'all' | 'pending' | 'approved'
-  >('all');
-
-  const [showSettings, setShowSettings] = useState(false);
-
-  const fetchDrives = useCallback(async (showSpinner = true) => {
-    if (showSpinner) setLoading(true);
-
+  const load = useCallback(async () => {
+    setLoading(true);
     try {
       const { data, error } = await supabase
         .from('drives')
@@ -119,149 +77,75 @@ export default function Home() {
       const records = (data ?? []) as Drive[];
       setDrives(records);
 
-      // Son kaydın göstergesi, seçili kullanıcıdan bağımsızdır.
-      if (records.length > 0) {
-        const latest = records[0];
-        setStartKm(String(latest.end_km));
-        setEndKm(String(latest.end_km));
+      if (records.length) {
+        setStart(String(records[0].end_km));
+        setEnd(String(records[0].end_km));
       }
-    } catch (error) {
-      console.error('Sürüş kayıtları alınamadı:', error);
-      setNotice({
-        type: 'error',
-        text: 'Kayıtlar alınamadı. İnternet bağlantını kontrol edip tekrar dene.',
-      });
+    } catch (e) {
+      console.error(e);
+      setNotice({ text: 'Kayıtlar yüklenemedi. Bağlantını kontrol et.', type: 'error' });
     } finally {
       setLoading(false);
-      setInitialLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void fetchDrives();
-  }, [fetchDrives]);
+    void load();
+    try {
+      const p = localStorage.getItem('km-kontrol-fuel-price');
+      if (p) setPrice(p);
+    } catch {}
+  }, [load]);
 
   useEffect(() => {
     try {
-      const savedPrice = localStorage.getItem('km-kontrol-fuel-price');
-      if (savedPrice) setFuelPrice(savedPrice);
-    } catch {
-      // Tarayıcı depolaması kullanılamıyorsa varsayılan değer korunur.
-    }
-  }, []);
+      localStorage.setItem('km-kontrol-fuel-price', price);
+    } catch {}
+  }, [price]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('km-kontrol-fuel-price', fuelPrice);
-    } catch {
-      // Fiyat yine de oturum boyunca kullanılabilir.
-    }
-  }, [fuelPrice]);
+  const latest = drives[0];
 
-  const latestDrive = drives[0];
-
-  const pendingApproval = useMemo(
-    () =>
-      drives.find(
-        (drive) =>
-          !drive.is_approved && drive.driver !== currentDriver
-      ),
-    [drives, currentDriver]
+  const pending = useMemo(
+    () => drives.find(d => !d.is_approved && d.driver !== driver),
+    [drives, driver]
   );
 
-  const driverStats = useMemo(() => {
-    return DRIVERS.map((driver) => {
-      const records = drives.filter((item) => item.driver === driver);
+  const stats = useMemo(() => DRIVERS.map(name => {
+    const records = drives.filter(d => d.driver === name);
+    const km = records.reduce((sum, d) => sum + personal(d), 0);
+    const liters = km * CONSUMPTION / 100;
+    return {
+      name,
+      records: records.length,
+      km,
+      liters,
+      cost: liters * Math.max(0, Number(price) || 0),
+    };
+  }), [drives, price]);
 
-      const personalKm = records.reduce(
-        (sum, item) => sum + getPersonalKm(item),
-        0
-      );
+  const tripKm = Math.max(0, Number(end || 0) - Number(start || 0));
+  const allowance = Math.min(tripKm, Math.max(0, Number(days || 0)) * DAILY_KM);
+  const personalKm = Math.max(0, tripKm - allowance);
+  const estimate = personalKm * CONSUMPTION / 100 * Math.max(0, Number(price) || 0);
 
-      const liters = (personalKm * CONSUMPTION) / 100;
-      const price = Math.max(0, Number(fuelPrice) || 0);
+  const message = (text: string, type: 'ok' | 'error') => setNotice({ text, type });
 
-      return {
-        driver,
-        recordCount: records.length,
-        personalKm,
-        liters,
-        cost: liters * price,
-      };
-    });
-  }, [drives, fuelPrice]);
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
 
-  const myStats = driverStats.find(
-    (item) => item.driver === currentDriver
-  )!;
+    const s = Number(start);
+    const en = Number(end);
+    const d = Number(days);
 
-  const drivenKm = Math.max(
-    0,
-    (Number(endKm) || 0) - (Number(startKm) || 0)
-  );
-
-  const allowedKm = Math.max(0, Number(workDays) || 0) * DAILY_WORK_KM;
-  const personalKm = Math.max(0, drivenKm - allowedKm);
-  const companyKm = Math.min(drivenKm, allowedKm);
-  const estimatedLiters = (personalKm * CONSUMPTION) / 100;
-  const estimatedCost =
-    estimatedLiters * Math.max(0, Number(fuelPrice) || 0);
-
-  const filteredDrives = useMemo(() => {
-    return drives.filter((drive) => {
-      if (historyFilter === 'pending') return !drive.is_approved;
-      if (historyFilter === 'approved') return drive.is_approved;
-      return true;
-    });
-  }, [drives, historyFilter]);
-
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const start = Number(startKm);
-    const end = Number(endKm);
-    const days = Number(workDays);
-
-    if (
-      startKm.trim() === '' ||
-      endKm.trim() === '' ||
-      workDays.trim() === '' ||
-      !Number.isFinite(start) ||
-      !Number.isFinite(end) ||
-      !Number.isFinite(days)
-    ) {
-      setNotice({
-        type: 'error',
-        text: 'Lütfen bütün alanlara geçerli değerler gir.',
-      });
+    if (!start.trim() || !end.trim() || !days.trim() ||
+        !Number.isFinite(s) || !Number.isFinite(en) || !Number.isFinite(d) ||
+        s < 0 || en <= s || d < 0 || !Number.isInteger(d)) {
+      message('Kilometre ve iş günü bilgilerini kontrol et.', 'error');
       return;
     }
 
-    if (start < 0 || end <= start) {
-      setNotice({
-        type: 'error',
-        text: 'Bitiş kilometresi başlangıç kilometresinden büyük olmalıdır.',
-      });
-      return;
-    }
-
-    if (days < 0 || !Number.isInteger(days)) {
-      setNotice({
-        type: 'error',
-        text: 'İş günü sıfır veya daha büyük bir tam sayı olmalıdır.',
-      });
-      return;
-    }
-
-    // Aynı göstergenin iki kez kaydedilmesini ve geçmişe dönük
-    // hatalı kilometre girişlerini önle.
-    if (latestDrive && start < Number(latestDrive.end_km)) {
-      setNotice({
-        type: 'error',
-        text: `Başlangıç KM, son araç göstergesi olan ${formatNumber(
-          Number(latestDrive.end_km)
-        )} KM değerinden düşük olamaz.`,
-      });
+    if (latest && s < Number(latest.end_km)) {
+      message(`Başlangıç KM, son gösterge (${fmt(Number(latest.end_km))}) değerinden düşük olamaz.`, 'error');
       return;
     }
 
@@ -269,883 +153,436 @@ export default function Home() {
     setNotice(null);
 
     try {
-      const { error } = await supabase.from('drives').insert([
-        {
-          driver: currentDriver,
-          start_km: start,
-          end_km: end,
-          work_days: days,
-          is_approved: false,
-        },
-      ]);
+      const { error } = await supabase.from('drives').insert([{
+        driver,
+        start_km: s,
+        end_km: en,
+        work_days: d,
+        is_approved: false,
+      }]);
 
       if (error) throw error;
 
-      setNotice({
-        type: 'success',
-        text: 'Sürüş kaydedildi. Devir teslim diğer kullanıcının onayını bekliyor.',
-      });
-
-      await fetchDrives(false);
-    } catch (error) {
-      console.error('Sürüş kaydedilemedi:', error);
-      setNotice({
-        type: 'error',
-        text: 'Kayıt yapılamadı. Lütfen tekrar dene.',
-      });
+      message('Sürüş kaydedildi. Diğer kullanıcının onayı bekleniyor.', 'ok');
+      await load();
+    } catch (e) {
+      console.error(e);
+      message('Kayıt yapılamadı. Tekrar deneyebilirsin.', 'error');
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleApprove(drive: Drive) {
-    if (drive.driver === currentDriver) {
-      setNotice({
-        type: 'error',
-        text: 'Kendi sürüş kaydını onaylayamazsın. Diğer kullanıcıyla giriş yap.',
-      });
+  async function approve(drive: Drive) {
+    if (drive.driver === driver) {
+      message('Kendi kaydını onaylayamazsın.', 'error');
       return;
     }
 
-    const confirmed = window.confirm(
-      `${drive.driver} tarafından girilen ${formatNumber(
-        Number(drive.end_km)
-      )} KM gösterge değerini onaylamak istiyor musun?`
-    );
+    if (!window.confirm(`${drive.driver} tarafından girilen ${fmt(Number(drive.end_km))} KM göstergesini onaylıyor musun?`)) return;
 
-    if (!confirmed) return;
-
-    setLoading(true);
-    setNotice(null);
-
+    setSaving(true);
     try {
       const { data, error } = await supabase
         .from('drives')
-        .update({
-          is_approved: true,
-          approved_by: currentDriver,
-        })
+        .update({ is_approved: true, approved_by: driver })
         .eq('id', drive.id)
         .eq('is_approved', false)
         .select('id');
 
       if (error) throw error;
 
-      if (!data || data.length === 0) {
-        setNotice({
-          type: 'info',
-          text: 'Kayıt daha önce onaylanmış olabilir. Liste yenilendi.',
-        });
-      } else {
-        setNotice({
-          type: 'success',
-          text: 'Devir teslim onaylandı.',
-        });
-      }
-
-      await fetchDrives(false);
-    } catch (error) {
-      console.error('Onay işlemi başarısız:', error);
-      setNotice({
-        type: 'error',
-        text: 'Onay verilemedi. Tekrar deneyebilirsin.',
-      });
+      message(data?.length ? 'Devir teslim onaylandı.' : 'Kayıt daha önce onaylanmış olabilir.', 'ok');
+      await load();
+    } catch (e) {
+      console.error(e);
+      message('Onay işlemi başarısız oldu.', 'error');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   }
 
+  const history = drives.filter(d =>
+    filter === 'all' ? true :
+    filter === 'pending' ? !d.is_approved : d.is_approved
+  );
+
   return (
-    <main className="min-h-screen bg-[#f4f6fb] text-slate-900 antialiased">
-      <div className="mx-auto min-h-screen w-full max-w-lg bg-[#f4f6fb] pb-10 sm:my-6 sm:rounded-[30px] sm:border sm:border-slate-200 sm:shadow-xl">
-        {/* ÜST ALAN */}
-        <header className="relative overflow-hidden rounded-b-[30px] bg-[#142747] px-5 pb-7 pt-5 text-white">
-          <div className="pointer-events-none absolute -right-12 -top-14 h-48 w-48 rounded-full bg-blue-500/10 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-20 left-10 h-40 w-40 rounded-full bg-indigo-400/10 blur-3xl" />
+    <main className="km-app">
+      <style jsx global>{`
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; background: #f4f6f8; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #18212f; -webkit-font-smoothing: antialiased; }
+        button, input, select { font: inherit; }
+        button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        .km-app { min-height: 100dvh; padding-bottom: 92px; background: #f4f6f8; }
+        .km-header { background: #fff; border-bottom: 1px solid #e9edf1; padding: 18px 18px 16px; }
+        .km-header-inner, .km-content, .km-nav { width: 100%; max-width: 560px; margin: auto; }
+        .km-brand { display: flex; align-items: center; gap: 11px; }
+        .km-logo { width: 43px; height: 43px; display: grid; place-items: center; border-radius: 13px; background: #eaf1ff; color: #2458cb; }
+        .km-brand-title { font-size: 18px; font-weight: 850; letter-spacing: -.6px; }
+        .km-brand-sub { margin-top: 3px; color: #8b95a3; font-size: 11px; }
+        .km-user { margin-top: 17px; position: relative; }
+        .km-label { display: block; margin-bottom: 7px; color: #758091; font-size: 11px; font-weight: 750; }
+        .km-select, .km-input { width: 100%; min-height: 47px; padding: 0 12px; border: 1px solid #dfe5ec; border-radius: 11px; outline: none; background: #fff; color: #202b3b; font-size: 14px; }
+        .km-select:focus, .km-input:focus { border-color: #4775db; box-shadow: 0 0 0 3px #4775db17; }
+        .km-content { padding: 20px 16px; }
+        .km-notice { display: flex; gap: 9px; align-items: flex-start; padding: 12px; border-radius: 12px; margin-bottom: 15px; font-size: 12px; line-height: 1.5; }
+        .km-notice.ok { color: #166b48; background: #eaf8f0; border: 1px solid #c9edd9; }
+        .km-notice.error { color: #a12e37; background: #fff0f0; border: 1px solid #f3d3d5; }
+        .km-section { margin-bottom: 24px; }
+        .km-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+        .km-section-title { margin: 0; font-size: 16px; font-weight: 850; letter-spacing: -.4px; }
+        .km-section-sub { margin-top: 4px; font-size: 11px; color: #8893a2; }
+        .km-icon-button { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #e3e7ed; background: white; border-radius: 11px; color: #647184; }
+        .km-odometer { padding: 20px; background: #1e3150; color: white; border-radius: 20px; box-shadow: 0 8px 22px #15284712; }
+        .km-odometer-label { display: flex; align-items: center; gap: 7px; color: #b9c9e2; font-size: 11px; font-weight: 700; }
+        .km-odometer-number { margin-top: 12px; font-size: clamp(36px, 10vw, 48px); line-height: 1.1; letter-spacing: -1.8px; font-weight: 900; overflow-wrap: anywhere; }
+        .km-odometer-number small { margin-left: 7px; font-size: 12px; letter-spacing: 0; color: #b9c9e2; }
+        .km-odometer-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; padding-top: 13px; border-top: 1px solid #ffffff1c; font-size: 11px; color: #c7d2e3; }
+        .km-pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 99px; padding: 6px 9px; font-size: 10px; font-weight: 750; white-space: nowrap; }
+        .km-pill.ok { color: #b7f5d0; background: #16825430; }
+        .km-pill.wait { color: #ffdc99; background: #d88c2630; }
+        .km-panel { border: 1px solid #e6eaf0; border-radius: 18px; background: white; padding: 16px; box-shadow: 0 3px 12px #15284705; }
+        .km-panel-heading { display: flex; align-items: center; gap: 10px; padding-bottom: 14px; margin-bottom: 15px; border-bottom: 1px solid #edf0f4; }
+        .km-panel-icon { display: grid; place-items: center; width: 35px; height: 35px; border-radius: 10px; background: #edf2ff; color: #315fc7; }
+        .km-panel-title { font-size: 14px; font-weight: 850; }
+        .km-panel-caption { margin-top: 3px; color: #8a95a5; font-size: 10px; }
+        .km-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .km-input { font-size: 15px; font-weight: 750; font-variant-numeric: tabular-nums; }
+        .km-preview { margin-top: 14px; padding: 13px; border-radius: 13px; background: #f5f7fb; border: 1px solid #e9edf3; }
+        .km-preview-title { font-size: 11px; font-weight: 800; color: #697587; margin-bottom: 12px; }
+        .km-preview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 8px; }
+        .km-preview-label { color: #8490a0; font-size: 10px; }
+        .km-preview-value { margin-top: 4px; font-size: 17px; font-weight: 850; letter-spacing: -.4px; overflow-wrap: anywhere; }
+        .km-blue { color: #285ac7; }
+        .km-green { color: #188154; }
+        .km-amber { color: #b86c18; }
+        .km-button { display: flex; justify-content: center; align-items: center; gap: 9px; width: 100%; min-height: 49px; padding: 12px; margin-top: 15px; border: 0; border-radius: 12px; background: #285ed0; color: white; font-size: 13px; font-weight: 850; transition: background .15s, transform .1s; }
+        .km-button:active { transform: scale(.99); }
+        .km-button:disabled { opacity: .55; cursor: not-allowed; }
+        .km-button.secondary { background: #eaf7ef; color: #176e49; }
+        .km-help { margin-top: 10px; font-size: 10px; color: #929cac; line-height: 1.5; text-align: center; }
+        .km-approval { padding: 15px; border: 1px solid #f0d8a8; border-radius: 16px; background: #fffaf0; margin-bottom: 22px; }
+        .km-approval-title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 850; color: #8a5a10; }
+        .km-approval-text { font-size: 12px; line-height: 1.55; color: #755c32; margin-top: 9px; }
+        .km-approval-odometer { font-size: 22px; font-weight: 900; color: #3a3020; margin-top: 6px; }
+        .km-driver-card { padding: 16px; border-radius: 17px; border: 1px solid #e4e9f0; background: white; margin-bottom: 11px; }
+        .km-driver-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .km-driver-name { font-size: 13px; font-weight: 850; }
+        .km-muted { color: #8b96a5; font-size: 10px; }
+        .km-driver-km { margin-top: 13px; font-size: 30px; font-weight: 900; letter-spacing: -1px; }
+        .km-driver-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-top: 1px solid #edf0f4; margin-top: 13px; padding-top: 12px; }
+        .km-driver-footer strong { display: block; margin-top: 4px; font-size: 13px; }
+        .km-toolbar { display: flex; gap: 7px; padding: 12px; border-bottom: 1px solid #edf0f4; }
+        .km-filter { padding: 8px 11px; border: 0; border-radius: 9px; background: #f1f3f6; color: #657183; font-size: 11px; font-weight: 750; }
+        .km-filter.active { background: #203554; color: white; }
+        .km-record { padding: 15px; border-bottom: 1px solid #edf0f4; }
+        .km-record:last-child { border-bottom: 0; }
+        .km-record-top { display: flex; align-items: flex-start; gap: 10px; }
+        .km-record-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px; background: #eef3ff; color: #315fc7; flex-shrink: 0; }
+        .km-record-main { min-width: 0; flex: 1; }
+        .km-record-name { font-size: 12px; font-weight: 850; }
+        .km-record-date { margin-top: 4px; font-size: 10px; color: #8a95a5; }
+        .km-record-distance { font-size: 17px; font-weight: 900; white-space: nowrap; }
+        .km-record-details { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; padding: 11px; border-radius: 11px; background: #f7f8fa; }
+        .km-record-details strong { display: block; margin-top: 4px; font-size: 12px; }
+        .km-record-bottom { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+        .km-mini-button { border: 1px solid #cbead8; background: #edf9f1; color: #18764e; border-radius: 9px; padding: 9px 11px; font-size: 11px; font-weight: 800; }
+        .km-empty { padding: 38px 18px; text-align: center; color: #8792a1; font-size: 12px; line-height: 1.6; }
+        .km-bottom-nav { position: fixed; z-index: 20; bottom: 0; left: 0; right: 0; padding: 9px 14px calc(9px + env(safe-area-inset-bottom)); background: #ffffffed; backdrop-filter: blur(18px); border-top: 1px solid #e5e9ef; }
+        .km-nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        .km-nav-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 51px; border: 0; border-radius: 12px; background: transparent; color: #8a95a4; font-size: 10px; font-weight: 750; }
+        .km-nav-item.active { color: #285ed0; background: #edf3ff; }
+        .km-nav-item svg { width: 19px; height: 19px; }
+        @media (min-width: 600px) {
+          .km-app { padding-bottom: 105px; }
+          .km-header { border: 1px solid #e6eaf0; border-radius: 0 0 20px 20px; }
+          .km-bottom-nav { left: 50%; right: auto; width: min(560px, 100%); transform: translateX(-50%); border: 1px solid #e5e9ef; border-bottom: 0; border-radius: 17px 17px 0 0; }
+        }
+      `}</style>
 
-          <div className="relative flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/10">
-                <Car size={23} className="text-blue-300" />
-              </div>
-              <div>
-                <h1 className="text-lg font-extrabold tracking-tight">
-                  KM Kontrol
-                </h1>
-                <p className="mt-0.5 text-[11px] text-slate-300">
-                  Ortak şirket aracı
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1.5 text-[10px] font-bold text-emerald-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              Araç takibi
+      <header className="km-header">
+        <div className="km-header-inner">
+          <div className="km-brand">
+            <div className="km-logo"><Car size={23} /></div>
+            <div>
+              <div className="km-brand-title">KM Kontrol</div>
+              <div className="km-brand-sub">Ortak şirket aracı</div>
             </div>
           </div>
 
-          <div className="relative mt-7">
-            <p className="text-[10px] font-bold uppercase tracking-[2px] text-blue-200/70">
-              Hoş geldin
-            </p>
-            <p className="mt-1 text-2xl font-extrabold tracking-tight">
-              Sürüş kontrol paneli
-            </p>
-            <p className="mt-2 max-w-xs text-xs leading-5 text-slate-300">
-              Kilometrelerini kaydet, devir teslimini tamamla ve kişisel
-              kullanımını takip et.
-            </p>
-          </div>
-
-          <div className="relative mt-5">
-            <label
-              htmlFor="driver"
-              className="mb-2 block text-[11px] font-bold text-slate-300"
+          <div className="km-user">
+            <label className="km-label" htmlFor="km-driver">Kullanıcı</label>
+            <select
+              id="km-driver"
+              className="km-select"
+              value={driver}
+              onChange={e => setDriver(e.target.value as Driver)}
             >
-              İşlem yapan kullanıcı
-            </label>
-            <div className="relative">
-              <UserRound
-                size={17}
-                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-blue-300"
-              />
-              <select
-                id="driver"
-                value={currentDriver}
-                onChange={(event) =>
-                  setCurrentDriver(event.target.value as DriverName)
-                }
-                className="w-full appearance-none rounded-xl border border-white/10 bg-white/10 py-3 pl-10 pr-10 text-sm font-bold text-white outline-none focus:border-blue-300"
-              >
-                <option className="bg-white text-slate-900" value="Erdem Pirci">
-                  Erdem Pirci
-                </option>
-                <option className="bg-white text-slate-900" value="Erdem Gündüz">
-                  Erdem Gündüz
-                </option>
-              </select>
-              <ChevronDown
-                size={16}
-                className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-300"
-              />
-            </div>
+              {DRIVERS.map(name => <option key={name}>{name}</option>)}
+            </select>
           </div>
-        </header>
+        </div>
+      </header>
 
-        <div className="space-y-6 px-4 pt-5">
-          {/* BİLDİRİM */}
-          {notice && (
-            <div
-              role="status"
-              className={`flex items-start gap-2.5 rounded-2xl border p-3.5 text-xs leading-5 ${
-                notice.type === 'success'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                  : notice.type === 'error'
-                    ? 'border-rose-200 bg-rose-50 text-rose-800'
-                    : 'border-blue-200 bg-blue-50 text-blue-800'
-              }`}
-            >
-              {notice.type === 'success' ? (
-                <CheckCircle2 size={17} className="mt-0.5 shrink-0" />
-              ) : notice.type === 'error' ? (
-                <AlertTriangle size={17} className="mt-0.5 shrink-0" />
-              ) : (
-                <Info size={17} className="mt-0.5 shrink-0" />
-              )}
-              <p className="flex-1">{notice.text}</p>
-              <button
-                type="button"
-                onClick={() => setNotice(null)}
-                aria-label="Bildirimi kapat"
-                className="rounded-lg p-1 opacity-60 hover:opacity-100"
-              >
-                <X size={15} />
-              </button>
-            </div>
-          )}
+      <div className="km-content">
+        {notice && (
+          <div className={`km-notice ${notice.type}`}>
+            {notice.type === 'ok' ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
+            <span style={{ flex: 1 }}>{notice.text}</span>
+            <button aria-label="Kapat" onClick={() => setNotice(null)} style={{ border: 0, background: 'transparent', color: 'inherit' }}>
+              <X size={15} />
+            </button>
+          </div>
+        )}
 
-          {/* DEVİR ONAYI */}
-          {pendingApproval && (
-            <section className="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm">
-              <div className="flex items-center gap-2.5 border-b border-amber-100 bg-amber-50 px-4 py-3.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
-                  <AlertTriangle size={19} />
+        {tab === 'home' && (
+          <>
+            {pending && (
+              <section className="km-approval">
+                <div className="km-approval-title"><Clock3 size={17} /> Devir teslim bekliyor</div>
+                <div className="km-approval-text">
+                  <strong>{pending.driver}</strong> aracı şu kilometrede bıraktı:
                 </div>
-                <div className="flex-1">
-                  <h2 className="text-sm font-extrabold text-amber-950">
-                    Devir teslim onayı
-                  </h2>
-                  <p className="mt-0.5 text-[11px] text-amber-800">
-                    İşlem bekleyen bir sürüş var.
-                  </p>
+                <div className="km-approval-odometer">{fmt(Number(pending.end_km))} KM</div>
+                <div className="km-approval-text">
+                  {fmt(distance(pending))} KM sürüş · {pending.work_days} iş günü
                 </div>
-                <span className="rounded-full bg-amber-200/70 px-2 py-1 text-[10px] font-bold text-amber-900">
-                  Bekliyor
-                </span>
-              </div>
-
-              <div className="p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs text-slate-500">Teslim eden</p>
-                    <p className="mt-1 text-sm font-extrabold">
-                      {pendingApproval.driver}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-slate-500">Araç göstergesi</p>
-                    <p className="mt-1 font-mono text-xl font-black tracking-tight">
-                      {formatNumber(Number(pendingApproval.end_km))}
-                      <span className="ml-1 text-xs font-bold text-slate-400">
-                        KM
-                      </span>
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <p className="text-[10px] text-slate-500">Sürüş mesafesi</p>
-                    <p className="mt-1 text-sm font-extrabold">
-                      {formatNumber(getDistance(pendingApproval))} KM
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <p className="text-[10px] text-slate-500">İş günü</p>
-                    <p className="mt-1 text-sm font-extrabold">
-                      {pendingApproval.work_days} gün
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => void handleApprove(pendingApproval)}
-                  disabled={loading}
-                  className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-sm font-extrabold text-amber-950 transition hover:bg-amber-400 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <CheckCircle2 size={18} />
-                  {loading ? 'İşleniyor...' : 'Devir teslimi onayla'}
+                <button className="km-button secondary" disabled={saving} onClick={() => void approve(pending)}>
+                  <CheckCircle2 size={17} /> Devir teslimi onayla
                 </button>
-                <p className="mt-2 text-center text-[10px] leading-4 text-slate-400">
-                  Onay, mevcut kullanıcı adına kaydedilir.
-                </p>
-              </div>
-            </section>
-          )}
-
-          {/* GÜNCEL GÖSTERGE */}
-          <section>
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-extrabold tracking-tight">
-                  Araç durumu
-                </h2>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  Son kaydedilen gösterge bilgisi
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => void fetchDrives()}
-                disabled={loading}
-                aria-label="Kayıtları yenile"
-                className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-              >
-                <RotateCw
-                  size={16}
-                  className={loading ? 'animate-spin' : ''}
-                />
-              </button>
-            </div>
-
-            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#1c3761] to-[#142747] p-5 text-white shadow-lg shadow-blue-950/10">
-              <div className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-blue-400/10 blur-3xl" />
-
-              <div className="relative flex items-center gap-2 text-[10px] font-bold uppercase tracking-[1.6px] text-blue-200">
-                <Gauge size={15} />
-                Güncel kilometre
-              </div>
-
-              <div className="relative mt-3 flex items-baseline gap-2">
-                <span className="break-all font-mono text-4xl font-black tracking-tight sm:text-5xl">
-                  {initialLoading
-                    ? '...'
-                    : latestDrive
-                      ? formatNumber(Number(latestDrive.end_km))
-                      : '—'}
-                </span>
-                <span className="text-sm font-bold text-blue-200">KM</span>
-              </div>
-
-              <div className="relative mt-5 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
-                <div className="min-w-0">
-                  <p className="text-[10px] text-blue-200/70">
-                    Son kaydı yapan
-                  </p>
-                  <p className="mt-1 truncate text-xs font-bold text-white">
-                    {latestDrive?.driver ?? 'Henüz kayıt yok'}
-                  </p>
-                </div>
-
-                {latestDrive && (
-                  <span
-                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[10px] font-bold ${
-                      latestDrive.is_approved
-                        ? 'bg-emerald-400/15 text-emerald-300'
-                        : 'bg-amber-400/15 text-amber-300'
-                    }`}
-                  >
-                    {latestDrive.is_approved ? (
-                      <CheckCircle2 size={12} />
-                    ) : (
-                      <Clock3 size={12} />
-                    )}
-                    {latestDrive.is_approved
-                      ? 'Onaylandı'
-                      : 'Onay bekliyor'}
-                  </span>
-                )}
-              </div>
-
-              {latestDrive && (
-                <p className="relative mt-2 text-[10px] text-blue-200/70">
-                  Son güncelleme: {formatDate(latestDrive.created_at)}
-                </p>
-              )}
-            </div>
-          </section>
-
-          {/* YENİ SÜRÜŞ FORMU */}
-          <section>
-            <div className="mb-3">
-              <h2 className="text-sm font-extrabold tracking-tight">
-                Yeni sürüş / devir
-              </h2>
-              <p className="mt-1 text-[11px] text-slate-500">
-                Sürüş bilgilerini gir ve kaydını oluştur.
-              </p>
-            </div>
-
-            <form
-              onSubmit={handleSubmit}
-              className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-sm"
-            >
-              <div className="mb-4 flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-                  <Plus size={19} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-extrabold">Sürüş kaydı</h3>
-                  <p className="mt-0.5 text-[10px] text-slate-400">
-                    {currentDriver} adına kaydedilecek
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="min-w-0">
-                  <label
-                    htmlFor="startKm"
-                    className="mb-2 block text-[11px] font-bold text-slate-600"
-                  >
-                    Başlangıç KM
-                  </label>
-                  <input
-                    id="startKm"
-                    type="number"
-                    inputMode="numeric"
-                    min="0"
-                    step="1"
-                    value={startKm}
-                    onChange={(event) => setStartKm(event.target.value)}
-                    className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 font-mono text-sm font-bold text-slate-800 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100"
-                    required
-                  />
-                </div>
-
-                <div className="min-w-0">
-                  <label
-                    htmlFor="endKm"
-                    className="mb-2 block text-[11px] font-bold text-indigo-700"
-                  >
-                    Bitiş KM
-                  </label>
-                  <input
-                    id="endKm"
-                    type="number"
-                    inputMode="numeric"
-                    min="0"
-                    step="1"
-                    value={endKm}
-                    onChange={(event) => setEndKm(event.target.value)}
-                    className="min-h-12 w-full rounded-xl border border-indigo-200 bg-indigo-50/50 px-3 font-mono text-sm font-extrabold text-indigo-950 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <label
-                  htmlFor="workDays"
-                  className="mb-2 block text-[11px] font-bold text-slate-600"
-                >
-                  İş günü sayısı
-                </label>
-                <div className="relative">
-                  <CalendarDays
-                    size={16}
-                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
-                  <input
-                    id="workDays"
-                    type="number"
-                    inputMode="numeric"
-                    min="0"
-                    step="1"
-                    value={workDays}
-                    onChange={(event) => setWorkDays(event.target.value)}
-                    className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm font-bold outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100"
-                    required
-                  />
-                </div>
-                <p className="mt-1.5 text-[10px] leading-4 text-slate-400">
-                  Günlük {DAILY_WORK_KM} KM şirket hakkı uygulanır.
-                </p>
-              </div>
-
-              {/* CANLI HESAPLAMA */}
-              <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                <div className="flex items-center gap-2 border-b border-slate-200 px-3.5 py-3">
-                  <TrendingUp size={15} className="text-indigo-600" />
-                  <span className="text-[11px] font-extrabold text-slate-700">
-                    Tahmini sürüş özeti
-                  </span>
-                  <span className="ml-auto text-[10px] text-slate-400">
-                    Canlı hesaplama
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-px bg-slate-200">
-                  <div className="bg-slate-50 p-3.5">
-                    <p className="text-[10px] text-slate-500">
-                      Toplam mesafe
-                    </p>
-                    <p className="mt-1 text-lg font-black tracking-tight">
-                      {formatNumber(drivenKm)}
-                      <span className="ml-1 text-[10px] font-bold text-slate-400">
-                        KM
-                      </span>
-                    </p>
-                  </div>
-
-                  <div className="bg-slate-50 p-3.5">
-                    <p className="text-[10px] text-slate-500">
-                      Şirket kullanım hakkı
-                    </p>
-                    <p className="mt-1 text-lg font-black tracking-tight text-emerald-700">
-                      {formatNumber(companyKm)}
-                      <span className="ml-1 text-[10px] font-bold text-slate-400">
-                        KM
-                      </span>
-                    </p>
-                  </div>
-
-                  <div className="bg-slate-50 p-3.5">
-                    <p className="text-[10px] text-slate-500">
-                      Kişisel kullanım
-                    </p>
-                    <p className="mt-1 text-lg font-black tracking-tight text-amber-700">
-                      {formatNumber(personalKm)}
-                      <span className="ml-1 text-[10px] font-bold text-slate-400">
-                        KM
-                      </span>
-                    </p>
-                  </div>
-
-                  <div className="bg-slate-50 p-3.5">
-                    <p className="text-[10px] text-slate-500">
-                      Tahmini yakıt tutarı
-                    </p>
-                    <p className="mt-1 break-words text-lg font-black tracking-tight text-indigo-700">
-                      {formatMoney(estimatedCost)}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-2 border-t border-slate-200 bg-white px-3.5 py-3">
-                  <Fuel size={14} className="mt-0.5 shrink-0 text-slate-400" />
-                  <p className="text-[10px] leading-4 text-slate-500">
-                    {formatNumber(estimatedLiters)} litre tahmini yakıt.
-                    Hesaplama {CONSUMPTION} L/100 KM sabit tüketimle yapılır.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={saving || loading || initialLoading}
-                className="mt-4 flex min-h-13 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3.5 text-sm font-extrabold text-white shadow-lg shadow-indigo-600/15 transition hover:bg-indigo-500 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {saving ? (
-                  <RotateCw size={17} className="animate-spin" />
-                ) : (
-                  <CheckCircle2 size={18} />
-                )}
-                {saving ? 'Kaydediliyor...' : 'Sürüşü kaydet ve devret'}
-                {!saving && <ArrowRight size={16} />}
-              </button>
-
-              <p className="mt-3 text-center text-[10px] leading-4 text-slate-400">
-                Kaydedilen sürüş, diğer kullanıcının onayına sunulur.
-              </p>
-            </form>
-          </section>
-
-          {/* KİŞİSEL HAKEDİŞLER */}
-          <section>
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-extrabold tracking-tight">
-                  Kişisel kullanım hakedişleri
-                </h2>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  Sürücü bazında birikimli hesaplama
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowSettings((previous) => !previous)}
-                className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[11px] font-bold text-slate-600 transition hover:bg-slate-50"
-              >
-                <Fuel size={14} />
-                Yakıt
-                <ChevronDown
-                  size={13}
-                  className={`transition-transform ${showSettings ? 'rotate-180' : ''}`}
-                />
-              </button>
-            </div>
-
-            {showSettings && (
-              <div className="mb-3 rounded-2xl border border-slate-200 bg-white p-4">
-                <label
-                  htmlFor="fuelPrice"
-                  className="mb-2 block text-[11px] font-bold text-slate-600"
-                >
-                  Yakıt litre fiyatı (TL)
-                </label>
-                <div className="relative">
-                  <CircleDollarSign
-                    size={16}
-                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
-                  <input
-                    id="fuelPrice"
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    value={fuelPrice}
-                    onChange={(event) => setFuelPrice(event.target.value)}
-                    className="min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-3 text-sm font-bold outline-none focus:border-indigo-400 focus:bg-white"
-                  />
-                </div>
-                <p className="mt-2 text-[10px] leading-4 text-slate-400">
-                  Fiyat yalnızca hesaplamada kullanılır. Supabase sürüş
-                  kayıtlarını değiştirmez.
-                </p>
-              </div>
+              </section>
             )}
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {driverStats.map((stats, index) => (
-                <div
-                  key={stats.driver}
-                  className={`relative overflow-hidden rounded-2xl border bg-white p-4 shadow-sm ${
-                    index === 0
-                      ? 'border-indigo-100'
-                      : 'border-emerald-100'
-                  }`}
-                >
-                  <div
-                    className={`absolute right-0 top-0 h-20 w-20 rounded-full blur-2xl ${
-                      index === 0 ? 'bg-indigo-100/70' : 'bg-emerald-100/70'
-                    }`}
-                  />
+            <section className="km-section">
+              <div className="km-section-heading">
+                <div>
+                  <h2 className="km-section-title">Araç göstergesi</h2>
+                  <div className="km-section-sub">En son kaydedilen kilometre</div>
+                </div>
+                <button className="km-icon-button" onClick={() => void load()} aria-label="Yenile">
+                  <RefreshCw size={16} className={loading ? 'km-spin' : ''} />
+                </button>
+              </div>
 
-                  <div className="relative flex items-center gap-2">
-                    <div
-                      className={`flex h-9 w-9 items-center justify-center rounded-xl ${
-                        index === 0
-                          ? 'bg-indigo-50 text-indigo-600'
-                          : 'bg-emerald-50 text-emerald-600'
-                      }`}
-                    >
-                      <UserRound size={17} />
+              <div className="km-odometer">
+                <div className="km-odometer-label"><Gauge size={15} /> GÜNCEL KİLOMETRE</div>
+                <div className="km-odometer-number">
+                  {loading && !latest ? '...' : latest ? fmt(Number(latest.end_km)) : '—'}
+                  <small>KM</small>
+                </div>
+                <div className="km-odometer-bottom">
+                  <div>
+                    <div style={{ opacity: .7, fontSize: 10 }}>Son kaydı yapan</div>
+                    <div style={{ marginTop: 4, color: '#fff', fontWeight: 750 }}>
+                      {latest?.driver ?? 'Henüz kayıt yok'}
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-extrabold">
-                        {stats.driver}
-                      </p>
-                      <p className="mt-0.5 text-[10px] text-slate-400">
-                        {stats.recordCount} sürüş kaydı
-                      </p>
-                    </div>
-                    {stats.driver === currentDriver && (
-                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-bold text-slate-600">
-                        Sen
-                      </span>
-                    )}
                   </div>
+                  {latest && (
+                    <span className={`km-pill ${latest.is_approved ? 'ok' : 'wait'}`}>
+                      {latest.is_approved ? <CheckCircle2 size={12} /> : <Clock3 size={12} />}
+                      {latest.is_approved ? 'Onaylandı' : 'Onay bekliyor'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </section>
 
-                  <div className="relative mt-4">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      Kişisel kilometre
-                    </p>
-                    <p className="mt-1 font-mono text-3xl font-black tracking-tight text-slate-900">
-                      {formatNumber(stats.personalKm)}
-                      <span className="ml-1.5 text-xs font-bold text-slate-400">
-                        KM
-                      </span>
-                    </p>
+            <section className="km-section">
+              <div className="km-section-heading">
+                <div>
+                  <h2 className="km-section-title">Yeni sürüş</h2>
+                  <div className="km-section-sub">Kilometreyi gir, kaydı tamamla.</div>
+                </div>
+              </div>
+
+              <form className="km-panel" onSubmit={submit}>
+                <div className="km-panel-heading">
+                  <div className="km-panel-icon"><Plus size={19} /></div>
+                  <div>
+                    <div className="km-panel-title">Sürüş / devir kaydı</div>
+                    <div className="km-panel-caption">{driver} adına kaydedilecek</div>
                   </div>
+                </div>
 
-                  <div className="relative mt-4 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3">
+                <div className="km-form-grid">
+                  <div>
+                    <label className="km-label" htmlFor="km-start">Başlangıç KM</label>
+                    <input className="km-input" id="km-start" type="number" min="0" step="1" inputMode="numeric" value={start} onChange={e => setStart(e.target.value)} required />
+                  </div>
+                  <div>
+                    <label className="km-label" htmlFor="km-end">Bitiş KM</label>
+                    <input className="km-input" id="km-end" type="number" min="0" step="1" inputMode="numeric" value={end} onChange={e => setEnd(e.target.value)} required />
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 15 }}>
+                  <label className="km-label" htmlFor="km-days">İş günü sayısı</label>
+                  <input className="km-input" id="km-days" type="number" min="0" step="1" inputMode="numeric" value={days} onChange={e => setDays(e.target.value)} required />
+                  <div className="km-section-sub" style={{ marginTop: 6 }}>Günlük {DAILY_KM} KM şirket kullanım hakkı.</div>
+                </div>
+
+                <div className="km-preview">
+                  <div className="km-preview-title">Sürüş özeti</div>
+                  <div className="km-preview-grid">
                     <div>
-                      <p className="text-[10px] text-slate-400">Yakıt</p>
-                      <p className="mt-1 text-sm font-extrabold text-slate-700">
-                        {formatNumber(stats.liters)} Lt
-                      </p>
+                      <div className="km-preview-label">Toplam mesafe</div>
+                      <div className="km-preview-value">{fmt(tripKm)} KM</div>
                     </div>
                     <div>
-                      <p className="text-[10px] text-slate-400">
-                        Yakıt karşılığı
-                      </p>
-                      <p
-                        className={`mt-1 text-sm font-extrabold ${
-                          index === 0 ? 'text-indigo-700' : 'text-emerald-700'
-                        }`}
-                      >
-                        {formatMoney(stats.cost)}
-                      </p>
+                      <div className="km-preview-label">Şirket hakkı</div>
+                      <div className="km-preview-value km-green">{fmt(allowance)} KM</div>
+                    </div>
+                    <div>
+                      <div className="km-preview-label">Kişisel kilometre</div>
+                      <div className="km-preview-value km-amber">{fmt(personalKm)} KM</div>
+                    </div>
+                    <div>
+                      <div className="km-preview-label">Tahmini yakıt tutarı</div>
+                      <div className="km-preview-value km-blue">{money(estimate)}</div>
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
 
-            <div className="mt-3 flex items-start gap-2 rounded-xl bg-blue-50 px-3.5 py-3 text-[10px] leading-4 text-blue-800">
-              <ShieldCheck size={15} className="mt-0.5 shrink-0" />
-              <p>
-                Hakediş hesaplaması tüm kayıtlar üzerinden yapılır. Her sürüşte
-                iş günü × {DAILY_WORK_KM} KM şirket hakkı düşülür. Negatif
-                kişisel kilometre sıfır kabul edilir.
-              </p>
-            </div>
-          </section>
+                <button className="km-button" type="submit" disabled={saving || loading}>
+                  {saving ? <RefreshCw size={17} /> : <CheckCircle2 size={18} />}
+                  {saving ? 'Kaydediliyor...' : 'Sürüşü kaydet'}
+                  {!saving && <ArrowRight size={16} />}
+                </button>
+                <div className="km-help">Kayıt diğer kullanıcının devir onayına sunulur.</div>
+              </form>
+            </section>
+          </>
+        )}
 
-          {/* SÜRÜŞ GEÇMİŞİ */}
-          <section>
-            <div className="mb-3 flex items-center justify-between gap-3">
+        {tab === 'history' && (
+          <section className="km-section">
+            <div className="km-section-heading">
               <div>
-                <h2 className="text-sm font-extrabold tracking-tight">
-                  Sürüş geçmişi
-                </h2>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  Tüm kullanıcıların kayıtları
-                </p>
+                <h2 className="km-section-title">Sürüş geçmişi</h2>
+                <div className="km-section-sub">{drives.length} kayıt · Tüm kullanıcılar</div>
               </div>
-              <div className="flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-extrabold text-slate-600">
-                <History size={14} />
-                {drives.length}
-              </div>
+              <button className="km-icon-button" onClick={() => void load()} aria-label="Yenile">
+                <RefreshCw size={16} />
+              </button>
             </div>
 
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex items-center gap-2 border-b border-slate-100 p-3">
-                <button
-                  type="button"
-                  onClick={() => setHistoryFilter('all')}
-                  className={`rounded-lg px-3 py-2 text-[11px] font-bold transition ${
-                    historyFilter === 'all'
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  Tümü
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHistoryFilter('pending')}
-                  className={`rounded-lg px-3 py-2 text-[11px] font-bold transition ${
-                    historyFilter === 'pending'
-                      ? 'bg-amber-100 text-amber-900'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  Bekleyen
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHistoryFilter('approved')}
-                  className={`rounded-lg px-3 py-2 text-[11px] font-bold transition ${
-                    historyFilter === 'approved'
-                      ? 'bg-emerald-100 text-emerald-900'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  Onaylanan
-                </button>
+            <div className="km-panel" style={{ padding: 0, overflow: 'hidden' }}>
+              <div className="km-toolbar">
+                {([
+                  ['all', 'Tümü'],
+                  ['pending', 'Bekleyen'],
+                  ['approved', 'Onaylanan'],
+                ] as const).map(([key, label]) => (
+                  <button key={key} onClick={() => setFilter(key)} className={`km-filter ${filter === key ? 'active' : ''}`}>
+                    {label}
+                  </button>
+                ))}
               </div>
 
-              {initialLoading ? (
-                <div className="flex flex-col items-center justify-center px-4 py-12 text-slate-400">
-                  <RotateCw size={23} className="animate-spin" />
-                  <p className="mt-3 text-xs">Kayıtlar yükleniyor...</p>
-                </div>
-              ) : filteredDrives.length === 0 ? (
-                <div className="flex flex-col items-center justify-center px-5 py-10 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-                    <Route size={22} />
-                  </div>
-                  <p className="mt-3 text-sm font-extrabold text-slate-700">
-                    Henüz kayıt yok
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-slate-400">
-                    Bu filtreye uygun bir sürüş bulunamadı.
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {filteredDrives.map((drive) => {
-                    const distance = getDistance(drive);
-                    const personal = getPersonalKm(drive);
-                    const isMine = drive.driver === currentDriver;
-
-                    return (
-                      <article key={drive.id} className="p-4">
-                        <div className="flex items-start gap-3">
-                          <div
-                            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                              drive.is_approved
-                                ? 'bg-emerald-50 text-emerald-600'
-                                : 'bg-amber-50 text-amber-600'
-                            }`}
-                          >
-                            {drive.is_approved ? (
-                              <CheckCircle2 size={19} />
-                            ) : (
-                              <Clock3 size={19} />
-                            )}
-                          </div>
-
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="text-xs font-extrabold">
-                                {drive.driver}
-                              </p>
-                              {isMine && (
-                                <span className="rounded-md bg-indigo-50 px-1.5 py-0.5 text-[9px] font-bold text-indigo-600">
-                                  Sen
-                                </span>
-                              )}
-                            </div>
-
-                            <p className="mt-1.5 text-[10px] text-slate-400">
-                              {formatDate(drive.created_at)}
-                            </p>
-
-                            <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
-                              <div>
-                                <p className="text-[10px] text-slate-400">
-                                  Başlangıç
-                                </p>
-                                <p className="mt-0.5 font-mono text-xs font-bold text-slate-700">
-                                  {formatNumber(Number(drive.start_km))} KM
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-[10px] text-slate-400">
-                                  Bitiş
-                                </p>
-                                <p className="mt-0.5 font-mono text-xs font-bold text-slate-700">
-                                  {formatNumber(Number(drive.end_km))} KM
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="mt-3 flex flex-wrap gap-1.5">
-                              <span className="rounded-lg bg-slate-100 px-2 py-1.5 text-[10px] font-bold text-slate-600">
-                                {formatNumber(distance)} KM sürüş
-                              </span>
-                              <span className="rounded-lg bg-slate-100 px-2 py-1.5 text-[10px] font-bold text-slate-600">
-                                {drive.work_days} iş günü
-                              </span>
-                              <span className="rounded-lg bg-amber-50 px-2 py-1.5 text-[10px] font-bold text-amber-800">
-                                {formatNumber(personal)} KM kişisel
-                              </span>
-                            </div>
-
-                            <div className="mt-3 flex flex-wrap items-center gap-2">
-                              <span
-                                className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold ${
-                                  drive.is_approved
-                                    ? 'bg-emerald-50 text-emerald-700'
-                                    : 'bg-amber-50 text-amber-800'
-                                }`}
-                              >
-                                {drive.is_approved ? (
-                                  <Check size={12} />
-                                ) : (
-                                  <Clock3 size={12} />
-                                )}
-                                {drive.is_approved
-                                  ? 'Onaylandı'
-                                  : 'Onay bekliyor'}
-                              </span>
-
-                              {drive.approved_by && (
-                                <span className="text-[10px] text-slate-400">
-                                  Onaylayan: {drive.approved_by}
-                                </span>
-                              )}
-                            </div>
-
-                            {!drive.is_approved && !isMine && (
-                              <button
-                                type="button"
-                                onClick={() => void handleApprove(drive)}
-                                disabled={loading}
-                                className="mt-3 flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-extrabold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50"
-                              >
-                                <CheckCircle2 size={15} />
-                                Bu devri onayla
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              )}
+              {loading ? <div className="km-empty">Kayıtlar yükleniyor...</div> :
+                history.length === 0 ? <div className="km-empty"><History size={26} style={{ margin: '0 auto 10px' }} /><br />Bu filtrede sürüş bulunamadı.</div> :
+                history.map(d => (
+                  <article className="km-record" key={d.id}>
+                    <div className="km-record-top">
+                      <div className="km-record-icon"><Car size={18} /></div>
+                      <div className="km-record-main">
+                        <div className="km-record-name">{d.driver}</div>
+                        <div className="km-record-date">{dateFmt(d.created_at)}</div>
+                      </div>
+                      <div className="km-record-distance">{fmt(distance(d))}<span style={{ fontSize: 10, color: '#8792a1', marginLeft: 3 }}>KM</span></div>
+                    </div>
+                    <div className="km-record-details">
+                      <div><span className="km-muted">Başlangıç</span><strong>{fmt(Number(d.start_km))} KM</strong></div>
+                      <div><span className="km-muted">Bitiş</span><strong>{fmt(Number(d.end_km))} KM</strong></div>
+                      <div><span className="km-muted">İş günü</span><strong>{d.work_days} gün</strong></div>
+                      <div><span className="km-muted">Kişisel KM</span><strong>{fmt(personal(d))} KM</strong></div>
+                    </div>
+                    <div className="km-record-bottom">
+                      <span className={`km-pill ${d.is_approved ? 'ok' : 'wait'}`}>
+                        {d.is_approved ? <CheckCircle2 size={12} /> : <Clock3 size={12} />}
+                        {d.is_approved ? 'Onaylandı' : 'Onay bekliyor'}
+                      </span>
+                      {!d.is_approved && d.driver !== driver && (
+                        <button className="km-mini-button" disabled={saving} onClick={() => void approve(d)}>
+                          <CheckCircle2 size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
+                          Onayla
+                        </button>
+                      )}
+                    </div>
+                    {d.approved_by && <div className="km-muted" style={{ marginTop: 9 }}>Onaylayan: {d.approved_by}</div>}
+                  </article>
+                ))
+              }
             </div>
           </section>
+        )}
 
-          {/* ALT BİLGİ */}
-          <footer className="pb-3 pt-1 text-center">
-            <div className="inline-flex items-center gap-1.5 text-[10px] font-medium text-slate-400">
-              <ShieldCheck size={13} />
-              KM Kontrol · Ortak araç yönetimi
+        {tab === 'earnings' && (
+          <section className="km-section">
+            <div className="km-section-heading">
+              <div>
+                <h2 className="km-section-title">Hakediş ve yakıt</h2>
+                <div className="km-section-sub">Sürücü bazında birikimli hesap</div>
+              </div>
             </div>
-            <p className="mt-1.5 text-[10px] text-slate-400">
-              Veriler Supabase üzerinden alınır.
-            </p>
-          </footer>
-        </div>
+
+            <div className="km-panel" style={{ marginBottom: 14 }}>
+              <label className="km-label" htmlFor="km-price">Yakıt litre fiyatı (TL)</label>
+              <input className="km-input" id="km-price" type="number" min="0" step="0.01" inputMode="decimal" value={price} onChange={e => setPrice(e.target.value)} />
+              <div className="km-section-sub" style={{ marginTop: 7 }}>Bu fiyat yalnızca tahmini hesaplamayı etkiler.</div>
+            </div>
+
+            {stats.map(s => (
+              <article className="km-driver-card" key={s.name}>
+                <div className="km-driver-top">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                    <div className="km-panel-icon"><UserRound size={17} /></div>
+                    <div>
+                      <div className="km-driver-name">{s.name}</div>
+                      <div className="km-muted" style={{ marginTop: 3 }}>{s.records} sürüş kaydı</div>
+                    </div>
+                  </div>
+                  {driver === s.name && <span className="km-pill" style={{ background: '#edf2ff', color: '#315fc7' }}>Sen</span>}
+                </div>
+                <div className="km-driver-km">{fmt(s.km)} <span style={{ fontSize: 12, color: '#8792a1' }}>KM</span></div>
+                <div className="km-muted">Toplam kişisel kullanım</div>
+                <div className="km-driver-footer">
+                  <div><span className="km-muted">Tahmini yakıt</span><strong>{fmt(s.liters)} Lt</strong></div>
+                  <div><span className="km-muted">Yakıt karşılığı</span><strong className="km-blue">{money(s.cost)}</strong></div>
+                </div>
+              </article>
+            ))}
+
+            <div className="km-panel" style={{ fontSize: 11, color: '#748091', lineHeight: 1.7 }}>
+              <ShieldCheck size={16} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 6 }} />
+              Her kayıtta iş günü × {DAILY_KM} KM şirket hakkı düşülür. Negatif kişisel kullanım sıfır kabul edilir. Yakıt tahmini {CONSUMPTION} L/100 KM tüketimle hesaplanır.
+            </div>
+          </section>
+        )}
+
+        <footer style={{ textAlign: 'center', padding: '4px 0 10px', color: '#9aa3b0', fontSize: 10 }}>
+          KM Kontrol · Ortak araç yönetimi
+        </footer>
       </div>
+
+      <nav className="km-bottom-nav" aria-label="Ana menü">
+        <div className="km-nav">
+          <button className={`km-nav-item ${tab === 'home' ? 'active' : ''}`} onClick={() => setTab('home')}>
+            <Gauge />
+            <span>Araç & Sürüş</span>
+          </button>
+          <button className={`km-nav-item ${tab === 'history' ? 'active' : ''}`} onClick={() => setTab('history')}>
+            <History />
+            <span>Geçmiş</span>
+          </button>
+          <button className={`km-nav-item ${tab === 'earnings' ? 'active' : ''}`} onClick={() => setTab('earnings')}>
+            <Wallet />
+            <span>Hakediş</span>
+          </button>
+        </div>
+      </nav>
     </main>
   );
 }
