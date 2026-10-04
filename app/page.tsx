@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import {
   Car, Gauge, Plus, History, Wallet, CheckCircle2,
   Clock3, RefreshCw, ArrowRight, Fuel, UserRound,
-  AlertTriangle, X, Edit3, ShieldCheck
+  AlertTriangle, X, Edit3, ShieldCheck, KeyRound, Lock
 } from 'lucide-react';
 
 type Driver = 'Erdem Pirci' | 'Erdem Gündüz';
@@ -68,6 +68,15 @@ export default function Home() {
   const [editEnd, setEditEnd] = useState('');
   const [editDays, setEditDays] = useState('');
 
+  // Şifre (PIN) State'leri
+  const [pins, setPins] = useState<Record<Driver, string>>({
+    'Erdem Pirci': '0000',
+    'Erdem Gündüz': '0000',
+  });
+  const [showPinChange, setShowPinChange] = useState(false);
+  const [oldPinInput, setOldPinInput] = useState('');
+  const [newPinInput, setNewPinInput] = useState('');
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -98,6 +107,9 @@ export default function Home() {
     try {
       const p = localStorage.getItem('km-kontrol-fuel-price');
       if (p) setPrice(p);
+
+      const savedPins = localStorage.getItem('km-kontrol-user-pins');
+      if (savedPins) setPins(JSON.parse(savedPins));
     } catch {}
   }, [load]);
 
@@ -106,6 +118,53 @@ export default function Home() {
       localStorage.setItem('km-kontrol-fuel-price', price);
     } catch {}
   }, [price]);
+
+  const savePinsToStorage = (newPins: Record<Driver, string>) => {
+    setPins(newPins);
+    try {
+      localStorage.setItem('km-kontrol-user-pins', JSON.stringify(newPins));
+    } catch {}
+  };
+
+  const verifyPin = (targetDriver: Driver): boolean => {
+    const userPin = pins[targetDriver] || '0000';
+    const input = window.prompt(`[${targetDriver}] İşlem yapmak için 4 haneli PIN şifreni gir:`);
+    if (input === null) return false;
+    if (input.trim() !== userPin) {
+      alert('Hatalı PIN Şifresi!');
+      return false;
+    }
+    return true;
+  };
+
+  const handleDriverChange = (newDriver: Driver) => {
+    if (verifyPin(newDriver)) {
+      setDriver(newDriver);
+      setNotice({ text: `Kullanıcı ${newDriver} olarak değiştirildi.`, type: 'ok' });
+    }
+  };
+
+  const handlePinChangeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const currentPin = pins[driver] || '0000';
+
+    if (oldPinInput !== currentPin) {
+      alert('Mevcut PIN hatalı!');
+      return;
+    }
+
+    if (newPinInput.length < 4) {
+      alert('Yeni PIN en az 4 haneli olmalıdır.');
+      return;
+    }
+
+    const updated = { ...pins, [driver]: newPinInput };
+    savePinsToStorage(updated);
+    alert('PIN Şifreniz başarıyla değiştirildi!');
+    setShowPinChange(false);
+    setOldPinInput('');
+    setNewPinInput('');
+  };
 
   const latest = drives[0];
 
@@ -136,6 +195,8 @@ export default function Home() {
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
+    if (!verifyPin(driver)) return;
 
     const s = Number(start);
     const en = Number(end);
@@ -172,14 +233,13 @@ export default function Home() {
     }
   }
 
-  // Düzenleme Başlatma
   function startEdit(drive: Drive) {
+    if (!verifyPin(driver)) return;
     setEditingDrive(drive);
     setEditEnd(String(drive.end_km));
     setEditDays(String(drive.work_days));
   }
 
-  // Düzenleme Kaydetme
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editingDrive) return;
@@ -221,7 +281,7 @@ export default function Home() {
       return;
     }
 
-    if (!window.confirm(`${drive.driver} tarafından girilen ${fmt(Number(drive.end_km))} KM göstergesini onaylıyor musun?`)) return;
+    if (!verifyPin(driver)) return;
 
     setSaving(true);
     try {
@@ -260,7 +320,8 @@ export default function Home() {
         .km-app { min-height: 100dvh; padding-bottom: 92px; background: #f4f6f8; }
         .km-header { background: #fff; border-bottom: 1px solid #e9edf1; padding: 18px 18px 16px; }
         .km-header-inner, .km-content, .km-nav { width: 100%; max-width: 560px; margin: auto; }
-        .km-brand { display: flex; align-items: center; gap: 11px; }
+        .km-brand { display: flex; align-items: center; justify-content: space-between; gap: 11px; }
+        .km-brand-left { display: flex; align-items: center; gap: 11px; }
         .km-logo { width: 43px; height: 43px; display: grid; place-items: center; border-radius: 13px; background: #eaf1ff; color: #2458cb; }
         .km-brand-title { font-size: 18px; font-weight: 850; letter-spacing: -.6px; }
         .km-brand-sub { margin-top: 3px; color: #8b95a3; font-size: 11px; }
@@ -306,6 +367,7 @@ export default function Home() {
         .km-button.secondary { background: #eaf7ef; color: #176e49; }
         .km-button.outline { background: transparent; border: 1px solid #dcdfe5; color: #475467; }
         .km-edit-btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #e2e8f0; background: #f8fafc; color: #475569; padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 700; }
+        .km-pin-btn { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #e2e8f0; background: #fff; color: #475569; padding: 8px 12px; border-radius: 10px; font-size: 11px; font-weight: 750; }
         .km-help { margin-top: 10px; font-size: 10px; color: #929cac; line-height: 1.5; text-align: center; }
         .km-approval { padding: 15px; border: 1px solid #f0d8a8; border-radius: 16px; background: #fffaf0; margin-bottom: 22px; }
         .km-approval-title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 850; color: #8a5a10; }
@@ -354,22 +416,27 @@ export default function Home() {
       <header className="km-header">
         <div className="km-header-inner">
           <div className="km-brand">
-            <div className="km-logo"><Car size={23} /></div>
-            <div>
-              <div className="km-brand-title">KM Kontrol</div>
-              <div className="km-brand-sub">Ortak şirket aracı</div>
+            <div className="km-brand-left">
+              <div className="km-logo"><Car size={23} /></div>
+              <div>
+                <div className="km-brand-title">KM Kontrol</div>
+                <div className="km-brand-sub">Ortak şirket aracı</div>
+              </div>
             </div>
+            <button className="km-pin-btn" onClick={() => setShowPinChange(true)}>
+              <Lock size={13} /> Şifre Değiştir
+            </button>
           </div>
 
           <div className="km-user">
-            <label className="km-label" htmlFor="km-driver">Kullanıcı</label>
+            <label className="km-label" htmlFor="km-driver">Aktif Kullanıcı (Şifre Korumalı)</label>
             <select
               id="km-driver"
               className="km-select"
               value={driver}
-              onChange={e => setDriver(e.target.value as Driver)}
+              onChange={e => handleDriverChange(e.target.value as Driver)}
             >
-              {DRIVERS.map(name => <option key={name}>{name}</option>)}
+              {DRIVERS.map(name => <option key={name} value={name}>{name}</option>)}
             </select>
           </div>
         </div>
@@ -399,7 +466,7 @@ export default function Home() {
                   {fmt(distance(pending))} KM sürüş · {pending.work_days} iş günü
                 </div>
                 <button className="km-button secondary" disabled={saving} onClick={() => void approve(pending)}>
-                  <CheckCircle2 size={17} /> Devir teslimi onayla
+                  <CheckCircle2 size={17} /> Devir teslimi onayla (PIN Gerekli)
                 </button>
               </section>
             )}
@@ -496,7 +563,7 @@ export default function Home() {
 
                 <button className="km-button" type="submit" disabled={saving || loading}>
                   {saving ? <RefreshCw size={17} /> : <CheckCircle2 size={18} />}
-                  {saving ? 'Kaydediliyor...' : 'Sürüşü kaydet'}
+                  {saving ? 'Kaydediliyor...' : 'Sürüşü kaydet (PIN Soru)'}
                   {!saving && <ArrowRight size={16} />}
                 </button>
                 <div className="km-help">Kayıt diğer kullanıcının devir onayına sunulur.</div>
@@ -554,14 +621,12 @@ export default function Home() {
                         {d.is_approved ? 'Onaylandı' : 'Onay bekliyor'}
                       </span>
 
-                      {/* Onaylanmamış Kendi Kaydını Düzenleme Butonu */}
                       {!d.is_approved && d.driver === driver && (
                         <button className="km-edit-btn" onClick={() => startEdit(d)}>
                           <Edit3 size={13} /> Düzenle
                         </button>
                       )}
 
-                      {/* Onaylama Butonu */}
                       {!d.is_approved && d.driver !== driver && (
                         <button className="km-mini-button" disabled={saving} onClick={() => void approve(d)}>
                           <CheckCircle2 size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
@@ -595,7 +660,7 @@ export default function Home() {
             {stats.map(s => (
               <article className="km-driver-card" key={s.name}>
                 <div className="km-driver-top">
-                  <div style={{ display: 'flex', itemsCenter: 'center', gap: 9 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                     <div className="km-panel-icon"><UserRound size={17} /></div>
                     <div>
                       <div className="km-driver-name">{s.name}</div>
@@ -624,7 +689,7 @@ export default function Home() {
         {editingDrive && (
           <div className="km-modal-overlay">
             <div className="km-modal">
-              <div style={{ display: 'flex', justifyBetween: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
                 <div style={{ fontWeight: 850, fontSize: 15 }}>Sürüş Kaydını Düzenle</div>
                 <button onClick={() => setEditingDrive(null)} style={{ border: 0, background: 'transparent' }}><X size={18} /></button>
               </div>
@@ -645,6 +710,36 @@ export default function Home() {
                   <button type="button" className="km-button outline" style={{ marginTop: 0 }} onClick={() => setEditingDrive(null)}>İptal</button>
                   <button type="submit" className="km-button" style={{ marginTop: 0 }} disabled={saving}>
                     {saving ? 'Kaydediliyor...' : 'Güncelle'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Şifre Değiştirme Modalı */}
+        {showPinChange && (
+          <div className="km-modal-overlay">
+            <div className="km-modal">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+                <div style={{ fontWeight: 850, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <KeyRound size={18} /> [{driver}] PIN Değiştir
+                </div>
+                <button onClick={() => setShowPinChange(false)} style={{ border: 0, background: 'transparent' }}><X size={18} /></button>
+              </div>
+              <form onSubmit={handlePinChangeSubmit}>
+                <div style={{ marginBottom: 12 }}>
+                  <label className="km-label">Mevcut PIN Şifreniz (Varsayılan: 0000)</label>
+                  <input className="km-input" type="password" maxLength={6} value={oldPinInput} onChange={e => setOldPinInput(e.target.value)} required placeholder="••••" />
+                </div>
+                <div style={{ marginBottom: 15 }}>
+                  <label className="km-label">Yeni PIN Şifreniz (En az 4 hane)</label>
+                  <input className="km-input" type="password" maxLength={6} value={newPinInput} onChange={e => setNewPinInput(e.target.value)} required placeholder="••••" />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <button type="button" className="km-button outline" style={{ marginTop: 0 }} onClick={() => setShowPinChange(false)}>İptal</button>
+                  <button type="submit" className="km-button" style={{ marginTop: 0 }}>
+                    Şifreyi Kaydet
                   </button>
                 </div>
               </form>
