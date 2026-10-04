@@ -25,7 +25,7 @@ interface Drive {
 
 const DRIVERS: Driver[] = ['Erdem Pirci', 'Erdem Gündüz'];
 const DAILY_KM = 60;
-const CONSUMPTION = 7.5; // 7.5 Lt / 100 KM (1 Lt = 13.33 KM)
+const CONSUMPTION = 7.5; // 7.5 Lt / 100 KM
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 }).format(n);
@@ -65,6 +65,7 @@ export default function Home() {
   const [editingDrive, setEditingDrive] = useState<Drive | null>(null);
   const [editEnd, setEditEnd] = useState('');
   const [editDays, setEditDays] = useState('');
+  const [editFuelLiters, setEditFuelLiters] = useState('');
 
   // PIN State'leri
   const [pins, setPins] = useState<Record<Driver, string>>({
@@ -268,35 +269,57 @@ export default function Home() {
   function startEdit(drive: Drive) {
     if (!verifyPin(driver)) return;
     setEditingDrive(drive);
-    setEditEnd(String(drive.end_km));
-    setEditDays(String(drive.work_days));
+    if (drive.record_type === 'fuel') {
+      setEditFuelLiters(String(drive.fuel_liters || ''));
+    } else {
+      setEditEnd(String(drive.end_km));
+      setEditDays(String(drive.work_days));
+    }
   }
 
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editingDrive) return;
 
-    const en = Number(editEnd);
-    const d = Number(editDays);
-
-    if (en <= Number(editingDrive.start_km) || d < 0) {
-      message('Bitiş KM, başlangıç KM den büyük olmalıdır.', 'error');
-      return;
-    }
-
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from('drives')
-        .update({
-          end_km: en,
-          work_days: d
-        })
-        .eq('id', editingDrive.id);
+      if (editingDrive.record_type === 'fuel') {
+        const ltr = Number(editFuelLiters);
+        if (!ltr || ltr <= 0) {
+          message('Geçerli bir litre miktarı girin.', 'error');
+          setSaving(false);
+          return;
+        }
 
-      if (error) throw error;
+        const { error } = await supabase
+          .from('drives')
+          .update({ fuel_liters: ltr })
+          .eq('id', editingDrive.id);
 
-      message('Sürüş kaydı güncellendi!', 'ok');
+        if (error) throw error;
+        message('Yakıt kaydı güncellendi!', 'ok');
+      } else {
+        const en = Number(editEnd);
+        const d = Number(editDays);
+
+        if (en <= Number(editingDrive.start_km) || d < 0) {
+          message('Bitiş KM, başlangıç KM den büyük olmalıdır.', 'error');
+          setSaving(false);
+          return;
+        }
+
+        const { error } = await supabase
+          .from('drives')
+          .update({
+            end_km: en,
+            work_days: d
+          })
+          .eq('id', editingDrive.id);
+
+        if (error) throw error;
+        message('Sürüş kaydı güncellendi!', 'ok');
+      }
+
       setEditingDrive(null);
       await load();
     } catch (e) {
@@ -696,7 +719,7 @@ export default function Home() {
                         {d.is_approved ? 'Onaylandı' : 'Onay bekliyor'}
                       </span>
 
-                      {!d.is_approved && d.driver === driver && d.record_type !== 'fuel' && (
+                      {!d.is_approved && d.driver === driver && (
                         <button className="km-edit-btn" onClick={() => startEdit(d)}>
                           <Edit3 size={13} /> Düzenle
                         </button>
@@ -768,22 +791,41 @@ export default function Home() {
           <div className="km-modal-overlay">
             <div className="km-modal">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
-                <div style={{ fontWeight: 850, fontSize: 15 }}>Sürüş Kaydını Düzenle</div>
+                <div style={{ fontWeight: 850, fontSize: 15 }}>
+                  {editingDrive.record_type === 'fuel' ? 'Yakıt Kaydını Düzenle' : 'Sürüş Kaydını Düzenle'}
+                </div>
                 <button onClick={() => setEditingDrive(null)} style={{ border: 0, background: 'transparent' }}><X size={18} /></button>
               </div>
               <form onSubmit={saveEdit}>
-                <div style={{ marginBottom: 12 }}>
-                  <label className="km-label">Başlangıç KM (Sabit)</label>
-                  <input className="km-input" value={editingDrive.start_km} disabled style={{ background: '#f1f5f9' }} />
-                </div>
-                <div style={{ marginBottom: 12 }}>
-                  <label className="km-label">Bitiş KM (Gösterge)</label>
-                  <input className="km-input" type="number" value={editEnd} onChange={e => setEditEnd(e.target.value)} required />
-                </div>
-                <div style={{ marginBottom: 15 }}>
-                  <label className="km-label">İş Günü Sayısı</label>
-                  <input className="km-input" type="number" step="0.5" value={editDays} onChange={e => setEditDays(e.target.value)} required />
-                </div>
+                {editingDrive.record_type === 'fuel' ? (
+                  <div style={{ marginBottom: 15 }}>
+                    <label className="km-label">Alınan Yakıt Miktarı (Litre)</label>
+                    <input
+                      className="km-input"
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      value={editFuelLiters}
+                      onChange={e => setEditFuelLiters(e.target.value)}
+                      required
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ marginBottom: 12 }}>
+                      <label className="km-label">Başlangıç KM (Sabit)</label>
+                      <input className="km-input" value={editingDrive.start_km} disabled style={{ background: '#f1f5f9' }} />
+                    </div>
+                    <div style={{ marginBottom: 12 }}>
+                      <label className="km-label">Bitiş KM (Gösterge)</label>
+                      <input className="km-input" type="number" value={editEnd} onChange={e => setEditEnd(e.target.value)} required />
+                    </div>
+                    <div style={{ marginBottom: 15 }}>
+                      <label className="km-label">İş Günü Sayısı</label>
+                      <input className="km-input" type="number" step="0.5" value={editDays} onChange={e => setEditDays(e.target.value)} required />
+                    </div>
+                  </>
+                )}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   <button type="button" className="km-button outline" style={{ marginTop: 0 }} onClick={() => setEditingDrive(null)}>İptal</button>
                   <button type="submit" className="km-button" style={{ marginTop: 0 }} disabled={saving}>
