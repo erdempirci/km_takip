@@ -182,21 +182,17 @@ export default function Home() {
     [drives, driver]
   );
 
-  // Hakediş ve Yakıt Ödemesi Düşülmüş Net Bakiye Hesaplama
   const stats = useMemo(() => DRIVERS.map(name => {
     const driverRecords = drives.filter(d => d.driver === name);
     
-    // Toplam borçlanılan kişisel kullanım KM & TL
     const totalPersonalKm = driverRecords.reduce((sum, d) => sum + personal(d), 0);
     const totalLitersUsed = totalPersonalKm * CONSUMPTION / 100;
     const grossCost = totalLitersUsed * Math.max(0, Number(price) || 0);
 
-    // Cebinden ödediği yakıt kayıtları
     const fuelRecords = driverRecords.filter(d => d.record_type === 'fuel');
     const paidFuelTl = fuelRecords.reduce((sum, d) => sum + Number(d.fuel_amount_tl || 0), 0);
     const paidFuelLiters = fuelRecords.reduce((sum, d) => sum + Number(d.fuel_liters || 0), 0);
 
-    // Kalan Net Borç
     const netBalance = grossCost - paidFuelTl;
 
     return {
@@ -249,7 +245,7 @@ export default function Home() {
         }]);
 
         if (error) throw error;
-        message('Yakıt alma kaydı eklendi. Onay bekleniyor.', 'ok');
+        message('Yakıt ödemesi kaydedildi. Onay bekleniyor.', 'ok');
         setFuelTl('');
         setFuelLiters('');
 
@@ -805,7 +801,7 @@ export default function Home() {
 
             <div className="km-panel" style={{ fontSize: 11, color: '#748091', lineHeight: 1.7 }}>
               <ShieldCheck size={16} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 6 }} />
-              Kişisel kullanım hakedişinden cebinizden ödeyip sisteme girdiğiniz onaylı yakıt ödemeleri otomatik düşülür.
+              Yakıt tüketim ortalaması <strong>7,5 L/100 KM</strong>, günlük şirket kullanım hakkı <strong>60 KM</strong> olarak hesaplanır. Cebinizden ödeyip sisteme girdiğiniz onaylı yakıt ödemeleri kişisel borcunuzdan otomatik düşülür.
             </div>
           </section>
         )}
@@ -834,7 +830,7 @@ export default function Home() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   <button type="button" className="km-button outline" style={{ marginTop: 0 }} onClick={() => setEditingDrive(null)}>İptal</button>
                   <button type="submit" className="km-button" style={{ marginTop: 0 }} disabled={saving}>
-                    {saving ? 'Kaydediliyor...' : 'Güncelle'}
+                    {saving ? 'Kaydedilediye...' : 'Güncelle'}
                   </button>
                 </div>
               </form>
