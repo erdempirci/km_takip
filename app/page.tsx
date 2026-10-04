@@ -2,7 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Car, CheckCircle2, AlertCircle, PlusCircle, Fuel, RefreshCw } from 'lucide-react';
+import { 
+  Car, 
+  CheckCircle2, 
+  AlertTriangle, 
+  Plus, 
+  Fuel, 
+  RotateCw, 
+  UserCheck, 
+  TrendingUp, 
+  ShieldCheck,
+  Zap
+} from 'lucide-react';
 
 interface Drive {
   id: string;
@@ -16,14 +27,15 @@ interface Drive {
 
 export default function Home() {
   const [drives, setDrives] = useState<Drive[]>([]);
-  const [currentDriver, setCurrentDriver] = useState<'Onur' | 'Erdem'>('Onur');
+  const [currentDriver, setCurrentDriver] = useState<'Erdem Pirci' | 'Erdem Gündüz'>('Erdem Pirci');
   const [startKm, setStartKm] = useState<number>(11000);
   const [endKm, setEndKm] = useState<number>(11000);
   const [workDays, setWorkDays] = useState<number>(5);
   const [fuelPrice, setFuelPrice] = useState<number>(45);
   const [loading, setLoading] = useState<boolean>(false);
 
-  const CONSUMPTION = 7.5; // 11.000 KM fabrika/araç ortalaması (7.5 lt/100km)
+  // Sabit Arac İçi Parametreler
+  const CONSUMPTION = 7.5; // Tescilli ortalama tüketim (7.5 lt / 100km)
   const DAILY_WORK_KM = 60; // Günlük git-gel iş yolu sabiti
 
   useEffect(() => {
@@ -66,7 +78,6 @@ export default function Home() {
     ]);
 
     if (!error) {
-      alert('Sürüş kaydı başarıyla eklendi!');
       fetchDrives();
     } else {
       alert('Hata: ' + error.message);
@@ -106,82 +117,125 @@ export default function Home() {
   const pendingApproval = drives.find(d => !d.is_approved && d.driver !== currentDriver);
 
   return (
-    <main className="min-h-screen bg-slate-100 p-4 max-w-md mx-auto pb-12 font-sans">
-      <header className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border mb-4">
-        <div className="flex items-center gap-2">
-          <Car className="text-blue-600" size={22} />
-          <h1 className="font-bold text-slate-800 text-base">KM Takip</h1>
+    <main className="min-h-screen bg-slate-950 text-slate-100 p-4 max-w-md mx-auto pb-16 font-sans antialiased">
+      
+      {/* Top Navigation Bar */}
+      <header className="flex justify-between items-center bg-slate-900/80 backdrop-blur-md p-3.5 px-4 rounded-2xl border border-slate-800/80 mb-5 shadow-2xl">
+        <div className="flex items-center gap-2.5">
+          <div className="bg-indigo-600/20 p-2 rounded-xl border border-indigo-500/30 text-indigo-400">
+            <Car size={20} />
+          </div>
+          <div>
+            <h1 className="font-extrabold text-sm tracking-tight text-white">KM Kontrol</h1>
+            <p className="text-[10px] text-slate-400 font-medium">Ortak Şirket Aracı</p>
+          </div>
         </div>
-        <select
-          value={currentDriver}
-          onChange={(e) => setCurrentDriver(e.target.value as 'Onur' | 'Erdem')}
-          className="bg-blue-50 border border-blue-200 font-bold px-3 py-2 rounded-xl text-xs text-blue-900 outline-none"
-        >
-          <option value="Onur">Ben (Onur)</option>
-          <option value="Erdem">Erdem (Dede)</option>
-        </select>
+
+        {/* User Switcher */}
+        <div className="relative">
+          <select
+            value={currentDriver}
+            onChange={(e) => setCurrentDriver(e.target.value as 'Erdem Pirci' | 'Erdem Gündüz')}
+            className="bg-slate-800 text-indigo-300 font-bold px-3 py-2 text-xs rounded-xl border border-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 transition-all appearance-none pr-7 cursor-pointer"
+          >
+            <option value="Erdem Pirci">Erdem Pirci</option>
+            <option value="Erdem Gündüz">Erdem Gündüz (Dede)</option>
+          </select>
+          <div className="absolute right-2.5 top-2.5 pointer-events-none text-indigo-400">
+            <UserCheck size={14} />
+          </div>
+        </div>
       </header>
 
+      {/* Devir-Teslim Onay Kartı (Sadece onay bekleyen varsa görünür) */}
       {pendingApproval && (
-        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 mb-4 space-y-3 shadow-sm">
-          <div className="flex items-center gap-2 text-amber-900 font-bold text-sm">
-            <AlertCircle size={18} />
+        <div className="bg-gradient-to-br from-amber-950/60 to-amber-900/30 border border-amber-500/40 rounded-2xl p-4 mb-5 shadow-lg relative overflow-hidden backdrop-blur-sm">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 rounded-full blur-2xl pointer-events-none"></div>
+          <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider mb-2">
+            <AlertTriangle size={16} className="animate-pulse" />
             <span>Devir Teslim Onayı Bekleniyor</span>
           </div>
-          <p className="text-xs text-amber-800">
-            <b>{pendingApproval.driver}</b> aracı <b>{Number(pendingApproval.end_km).toLocaleString()} KM</b> göstergede bıraktı ({pendingApproval.work_days} gün iş kullanımı).
+          <p className="text-xs text-amber-200/90 leading-relaxed mb-3">
+            <b className="text-white font-bold">{pendingApproval.driver}</b> aracı <b className="text-amber-300 font-mono text-sm">{Number(pendingApproval.end_km).toLocaleString()} KM</b> göstergede bıraktı ({pendingApproval.work_days} iş günü kullanımı).
           </p>
           <button
             onClick={() => handleApprove(pendingApproval.id)}
             disabled={loading}
-            className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-all"
+            className="w-full bg-amber-500 hover:bg-amber-400 active:scale-[0.98] text-slate-950 font-black py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-md transition-all"
           >
-            <CheckCircle2 size={16} /> Gösterge Doğru, Onayla
+            <CheckCircle2 size={16} /> Göstergeyi & Devri Onayla
           </button>
         </div>
       )}
 
-      <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-md mb-4 relative overflow-hidden">
-        <div className="flex justify-between items-center mb-1">
-          <p className="text-xs text-slate-400 font-medium">Sistemdeki Son Gösterge</p>
-          <button onClick={fetchDrives} className="text-slate-400 hover:text-white transition-all">
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+      {/* Main Stats Widget (Mevcut Gösterge) */}
+      <div className="bg-gradient-to-b from-slate-900 to-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-2xl mb-5 relative overflow-hidden">
+        <div className="absolute -right-10 -bottom-10 w-36 h-36 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none"></div>
+        
+        <div className="flex justify-between items-center mb-3">
+          <span className="text-[11px] uppercase tracking-widest font-bold text-slate-400 flex items-center gap-1.5">
+            <Zap size={14} className="text-indigo-400" /> Güncel Gösterge
+          </span>
+          <button 
+            onClick={fetchDrives} 
+            className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition-all border border-slate-700/50"
+          >
+            <RotateCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
-        <div className="text-3xl font-extrabold tracking-tight mb-2">
-          {lastDrive ? `${Number(lastDrive.end_km).toLocaleString()} KM` : 'Henüz Kayıt Yok'}
+
+        <div className="flex items-baseline gap-2 mb-3">
+          <span className="text-4xl font-black font-mono tracking-tight text-white drop-shadow-md">
+            {lastDrive ? Number(lastDrive.end_km).toLocaleString() : '---'}
+          </span>
+          <span className="text-xs font-bold text-slate-500">KM</span>
         </div>
+
         {lastDrive && (
-          <div className="flex justify-between items-center text-xs text-slate-400 pt-2 border-t border-slate-800">
-            <span>Son Bırakan: <b>{lastDrive.driver}</b></span>
-            <span>{lastDrive.is_approved ? '✅ Onaylandı' : '⏳ Onay Bekliyor'}</span>
+          <div className="flex items-center justify-between text-xs pt-3 border-t border-slate-800/80 text-slate-400">
+            <span className="flex items-center gap-1">
+              Son Teslim: <b className="text-slate-200">{lastDrive.driver}</b>
+            </span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+              lastDrive.is_approved 
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+            }`}>
+              {lastDrive.is_approved ? '✓ Onaylandı' : '⏳ Onay Bekliyor'}
+            </span>
           </div>
         )}
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white p-4 rounded-2xl shadow-sm border mb-4 space-y-3">
-        <h2 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-2">
-          <PlusCircle size={16} className="text-blue-600" /> Sürüş / Devir Girişi
-        </h2>
+      {/* Drive Log Form */}
+      <form onSubmit={handleSubmit} className="bg-slate-900/90 border border-slate-800 p-4 rounded-3xl shadow-xl mb-5 space-y-3.5">
+        <div className="flex items-center gap-2 border-b border-slate-800 pb-2.5">
+          <Plus size={16} className="text-indigo-400" />
+          <h2 className="font-extrabold text-xs uppercase tracking-wider text-slate-200">Yeni Sürüş / Devir Girişi</h2>
+        </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2.5">
           <div>
-            <label className="block text-[10px] font-bold text-slate-400 mb-1">BAŞLANGIÇ KM</label>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+              Başlangıç KM
+            </label>
             <input
               type="number"
               value={startKm}
               onChange={(e) => setStartKm(Number(e.target.value))}
-              className="w-full bg-slate-50 border rounded-xl p-2.5 text-xs font-bold text-slate-700"
+              className="w-full bg-slate-950/80 border border-slate-800 rounded-xl p-2.5 text-xs font-mono font-bold text-slate-300 focus:outline-none"
               required
             />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-slate-400 mb-1">BİTİŞ KM (GÖSTERGE)</label>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-indigo-400 mb-1">
+              Bitiş KM (Gösterge)
+            </label>
             <input
               type="number"
               value={endKm}
               onChange={(e) => setEndKm(Number(e.target.value))}
-              className="w-full bg-slate-50 border border-blue-300 rounded-xl p-2.5 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full bg-slate-950 border border-indigo-500/50 rounded-xl p-2.5 text-xs font-mono font-bold text-white focus:ring-2 focus:ring-indigo-500 outline-none"
               placeholder="Örn: 11450"
               required
             />
@@ -189,15 +243,15 @@ export default function Home() {
         </div>
 
         <div>
-          <label className="block text-[10px] font-bold text-slate-400 mb-1">
-            İŞ GÜNÜ SAYISI (Gün × 60 KM Şirket Hakkı)
+          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+            İş Günü Sayısı (Gün × 60 KM Şirket Hakkı)
           </label>
           <input
             type="number"
             step="0.5"
             value={workDays}
             onChange={(e) => setWorkDays(Number(e.target.value))}
-            className="w-full bg-slate-50 border rounded-xl p-2.5 text-xs font-bold text-slate-800"
+            className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs font-bold text-slate-200 focus:border-indigo-500 outline-none"
             required
           />
         </div>
@@ -205,49 +259,65 @@ export default function Home() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-xs transition-all shadow-sm"
+          className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white font-black py-3 rounded-xl text-xs transition-all shadow-lg shadow-indigo-600/20"
         >
-          {loading ? 'Kaydediliyor...' : 'Devir Teslim Kaydet'}
+          {loading ? 'İşleniyor...' : 'Sürüşü ve Devri Kaydet'}
         </button>
       </form>
 
-      <div className="bg-white p-4 rounded-2xl shadow-sm border space-y-3">
-        <div className="flex justify-between items-center pb-2 border-b">
-          <h2 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
-            <Fuel size={16} className="text-purple-600" /> Kişisel Yakıt Bakiyeleri
-          </h2>
-          <div className="flex items-center gap-1 text-xs">
-            <span className="text-[10px] text-slate-400 font-bold">LİTRE:</span>
+      {/* Fuel & Balance Summary */}
+      <div className="bg-slate-900/90 border border-slate-800 p-4 rounded-3xl shadow-xl space-y-3.5">
+        <div className="flex justify-between items-center pb-2.5 border-b border-slate-800">
+          <div className="flex items-center gap-1.5">
+            <Fuel size={16} className="text-indigo-400" />
+            <h2 className="font-extrabold text-xs uppercase tracking-wider text-slate-200">Kişisel Kullanım Hakedişleri</h2>
+          </div>
+          <div className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 rounded-xl border border-slate-800">
+            <span className="text-[10px] text-slate-400 font-bold">Litre:</span>
             <input
               type="number"
               value={fuelPrice}
               onChange={(e) => setFuelPrice(Number(e.target.value))}
-              className="w-12 bg-slate-100 rounded px-1 text-center font-bold text-slate-700 text-xs"
+              className="w-10 bg-transparent text-center font-bold text-indigo-300 text-xs outline-none"
             />
             <span className="text-[10px] text-slate-400 font-bold">TL</span>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 text-center">
-          <div className="bg-purple-50 p-3 rounded-xl border border-purple-100">
-            <p className="text-[10px] font-bold text-purple-600">ONUR (KİŞİSEL)</p>
-            <p className="text-base font-black text-purple-900">{calcStats('Onur').totalPersonalKm} KM</p>
-            <p className="text-[11px] font-medium text-purple-700 mt-0.5">
-              {calcStats('Onur').liters} Lt / <b>{calcStats('Onur').cost} TL</b>
+        <div className="grid grid-cols-2 gap-2.5">
+          {/* Erdem Pirci Card */}
+          <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-indigo-500/20 relative overflow-hidden">
+            <p className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-400 mb-1">Erdem Pirci</p>
+            <p className="text-xl font-black font-mono text-white mb-1">
+              {calcStats('Erdem Pirci').totalPersonalKm} <span className="text-xs font-normal text-slate-400">KM</span>
             </p>
+            <div className="text-[11px] font-medium text-slate-400 pt-1.5 border-t border-slate-800/80">
+              <span>{calcStats('Erdem Pirci').liters} Lt</span>
+              <span className="mx-1 text-slate-600">•</span>
+              <b className="text-indigo-300 font-bold">{calcStats('Erdem Pirci').cost} TL</b>
+            </div>
           </div>
-          <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-100">
-            <p className="text-[10px] font-bold text-emerald-600">ERDEM (KİŞİSEL)</p>
-            <p className="text-base font-black text-emerald-900">{calcStats('Erdem').totalPersonalKm} KM</p>
-            <p className="text-[11px] font-medium text-emerald-700 mt-0.5">
-              {calcStats('Erdem').liters} Lt / <b>{calcStats('Erdem').cost} TL</b>
+
+          {/* Erdem Gündüz Card */}
+          <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-emerald-500/20 relative overflow-hidden">
+            <p className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400 mb-1">Erdem Gündüz</p>
+            <p className="text-xl font-black font-mono text-white mb-1">
+              {calcStats('Erdem Gündüz').totalPersonalKm} <span className="text-xs font-normal text-slate-400">KM</span>
             </p>
+            <div className="text-[11px] font-medium text-slate-400 pt-1.5 border-t border-slate-800/80">
+              <span>{calcStats('Erdem Gündüz').liters} Lt</span>
+              <span className="mx-1 text-slate-600">•</span>
+              <b className="text-emerald-300 font-bold">{calcStats('Erdem Gündüz').cost} TL</b>
+            </div>
           </div>
         </div>
-        <p className="text-[10px] text-slate-400 text-center italic pt-1">
-          * Hesaplama 7,5 lt/100km sabitiyle yapılmaktadır.
-        </p>
+
+        <div className="flex items-center justify-center gap-1.5 text-[10px] text-slate-500 pt-1 font-medium">
+          <ShieldCheck size={13} className="text-slate-600" />
+          <span>Hesaplama sabit 7.5 Lt/100km tüketim ile yapılır.</span>
+        </div>
       </div>
+
     </main>
   );
 }
