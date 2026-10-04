@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -6,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import {
   Car, Gauge, Plus, History, Wallet, CheckCircle2,
   Clock3, RefreshCw, ArrowRight, Fuel, UserRound,
-  AlertTriangle, X, ChevronRight, Route, ShieldCheck
+  AlertTriangle, X, Edit3, ShieldCheck
 } from 'lucide-react';
 
 type Driver = 'Erdem Pirci' | 'Erdem Gündüz';
@@ -63,6 +62,11 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ text: string; type: 'ok' | 'error' } | null>(null);
+
+  // Düzenleme Modal State'leri
+  const [editingDrive, setEditingDrive] = useState<Drive | null>(null);
+  const [editEnd, setEditEnd] = useState('');
+  const [editDays, setEditDays] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -139,13 +143,8 @@ export default function Home() {
 
     if (!start.trim() || !end.trim() || !days.trim() ||
         !Number.isFinite(s) || !Number.isFinite(en) || !Number.isFinite(d) ||
-        s < 0 || en <= s || d < 0 || !Number.isInteger(d)) {
+        s < 0 || en <= s || d < 0) {
       message('Kilometre ve iş günü bilgilerini kontrol et.', 'error');
-      return;
-    }
-
-    if (latest && s < Number(latest.end_km)) {
-      message(`Başlangıç KM, son gösterge (${fmt(Number(latest.end_km))}) değerinden düşük olamaz.`, 'error');
       return;
     }
 
@@ -163,11 +162,54 @@ export default function Home() {
 
       if (error) throw error;
 
-      message('Sürüş kaydedildi. Diğer kullanıcının onayı bekleniyor.', 'ok');
+      message('Sürüş kaydedildi. Onay bekleniyor.', 'ok');
       await load();
     } catch (e) {
       console.error(e);
-      message('Kayıt yapılamadı. Tekrar deneyebilirsin.', 'error');
+      message('Kayıt yapılamadı.', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Düzenleme Başlatma
+  function startEdit(drive: Drive) {
+    setEditingDrive(drive);
+    setEditEnd(String(drive.end_km));
+    setEditDays(String(drive.work_days));
+  }
+
+  // Düzenleme Kaydetme
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingDrive) return;
+
+    const en = Number(editEnd);
+    const d = Number(editDays);
+
+    if (en <= Number(editingDrive.start_km) || d < 0) {
+      message('Bitiş KM, başlangıç KM den büyük olmalıdır.', 'error');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('drives')
+        .update({
+          end_km: en,
+          work_days: d
+        })
+        .eq('id', editingDrive.id);
+
+      if (error) throw error;
+
+      message('Sürüş kaydı güncellendi!', 'ok');
+      setEditingDrive(null);
+      await load();
+    } catch (e) {
+      console.error(e);
+      message('Güncelleme yapılamadı.', 'error');
     } finally {
       setSaving(false);
     }
@@ -192,11 +234,11 @@ export default function Home() {
 
       if (error) throw error;
 
-      message(data?.length ? 'Devir teslim onaylandı.' : 'Kayıt daha önce onaylanmış olabilir.', 'ok');
+      message(data?.length ? 'Devir teslim onaylandı.' : 'Daha önce onaylanmış.', 'ok');
       await load();
     } catch (e) {
       console.error(e);
-      message('Onay işlemi başarısız oldu.', 'error');
+      message('Onay işlemi başarısız.', 'error');
     } finally {
       setSaving(false);
     }
@@ -262,6 +304,8 @@ export default function Home() {
         .km-button:active { transform: scale(.99); }
         .km-button:disabled { opacity: .55; cursor: not-allowed; }
         .km-button.secondary { background: #eaf7ef; color: #176e49; }
+        .km-button.outline { background: transparent; border: 1px solid #dcdfe5; color: #475467; }
+        .km-edit-btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #e2e8f0; background: #f8fafc; color: #475569; padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 700; }
         .km-help { margin-top: 10px; font-size: 10px; color: #929cac; line-height: 1.5; text-align: center; }
         .km-approval { padding: 15px; border: 1px solid #f0d8a8; border-radius: 16px; background: #fffaf0; margin-bottom: 22px; }
         .km-approval-title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 850; color: #8a5a10; }
@@ -295,6 +339,11 @@ export default function Home() {
         .km-nav-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 51px; border: 0; border-radius: 12px; background: transparent; color: #8a95a4; font-size: 10px; font-weight: 750; }
         .km-nav-item.active { color: #285ed0; background: #edf3ff; }
         .km-nav-item svg { width: 19px; height: 19px; }
+        
+        /* Modal Overlay */
+        .km-modal-overlay { position: fixed; inset: 0; z-index: 50; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 16px; }
+        .km-modal { background: white; border-radius: 20px; max-width: 440px; width: 100%; padding: 20px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+
         @media (min-width: 600px) {
           .km-app { padding-bottom: 105px; }
           .km-header { border: 1px solid #e6eaf0; border-radius: 0 0 20px 20px; }
@@ -362,7 +411,7 @@ export default function Home() {
                   <div className="km-section-sub">En son kaydedilen kilometre</div>
                 </div>
                 <button className="km-icon-button" onClick={() => void load()} aria-label="Yenile">
-                  <RefreshCw size={16} className={loading ? 'km-spin' : ''} />
+                  <RefreshCw size={16} />
                 </button>
               </div>
 
@@ -419,7 +468,7 @@ export default function Home() {
 
                 <div style={{ marginTop: 15 }}>
                   <label className="km-label" htmlFor="km-days">İş günü sayısı</label>
-                  <input className="km-input" id="km-days" type="number" min="0" step="1" inputMode="numeric" value={days} onChange={e => setDays(e.target.value)} required />
+                  <input className="km-input" id="km-days" type="number" min="0" step="0.5" inputMode="decimal" value={days} onChange={e => setDays(e.target.value)} required />
                   <div className="km-section-sub" style={{ marginTop: 6 }}>Günlük {DAILY_KM} KM şirket kullanım hakkı.</div>
                 </div>
 
@@ -504,6 +553,15 @@ export default function Home() {
                         {d.is_approved ? <CheckCircle2 size={12} /> : <Clock3 size={12} />}
                         {d.is_approved ? 'Onaylandı' : 'Onay bekliyor'}
                       </span>
+
+                      {/* Onaylanmamış Kendi Kaydını Düzenleme Butonu */}
+                      {!d.is_approved && d.driver === driver && (
+                        <button className="km-edit-btn" onClick={() => startEdit(d)}>
+                          <Edit3 size={13} /> Düzenle
+                        </button>
+                      )}
+
+                      {/* Onaylama Butonu */}
                       {!d.is_approved && d.driver !== driver && (
                         <button className="km-mini-button" disabled={saving} onClick={() => void approve(d)}>
                           <CheckCircle2 size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
@@ -537,7 +595,7 @@ export default function Home() {
             {stats.map(s => (
               <article className="km-driver-card" key={s.name}>
                 <div className="km-driver-top">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <div style={{ display: 'flex', itemsCenter: 'center', gap: 9 }}>
                     <div className="km-panel-icon"><UserRound size={17} /></div>
                     <div>
                       <div className="km-driver-name">{s.name}</div>
@@ -560,6 +618,38 @@ export default function Home() {
               Her kayıtta iş günü × {DAILY_KM} KM şirket hakkı düşülür. Negatif kişisel kullanım sıfır kabul edilir. Yakıt tahmini {CONSUMPTION} L/100 KM tüketimle hesaplanır.
             </div>
           </section>
+        )}
+
+        {/* Düzenleme Modalı */}
+        {editingDrive && (
+          <div className="km-modal-overlay">
+            <div className="km-modal">
+              <div style={{ display: 'flex', justifyBetween: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+                <div style={{ fontWeight: 850, fontSize: 15 }}>Sürüş Kaydını Düzenle</div>
+                <button onClick={() => setEditingDrive(null)} style={{ border: 0, background: 'transparent' }}><X size={18} /></button>
+              </div>
+              <form onSubmit={saveEdit}>
+                <div style={{ marginBottom: 12 }}>
+                  <label className="km-label">Başlangıç KM (Sabit)</label>
+                  <input className="km-input" value={editingDrive.start_km} disabled style={{ background: '#f1f5f9' }} />
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label className="km-label">Bitiş KM (Gösterge)</label>
+                  <input className="km-input" type="number" value={editEnd} onChange={e => setEditEnd(e.target.value)} required />
+                </div>
+                <div style={{ marginBottom: 15 }}>
+                  <label className="km-label">İş Günü Sayısı</label>
+                  <input className="km-input" type="number" step="0.5" value={editDays} onChange={e => setEditDays(e.target.value)} required />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <button type="button" className="km-button outline" style={{ marginTop: 0 }} onClick={() => setEditingDrive(null)}>İptal</button>
+                  <button type="submit" className="km-button" style={{ marginTop: 0 }} disabled={saving}>
+                    {saving ? 'Kaydediliyor...' : 'Güncelle'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
         )}
 
         <footer style={{ textAlign: 'center', padding: '4px 0 10px', color: '#9aa3b0', fontSize: 10 }}>
