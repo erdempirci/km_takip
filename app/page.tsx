@@ -19,6 +19,9 @@ interface Drive {
   is_approved: boolean;
   approved_by?: string | null;
   created_at: string;
+  record_type?: 'drive' | 'fuel';
+  fuel_amount_tl?: number;
+  fuel_liters?: number;
 }
 
 const DRIVERS: Driver[] = ['Erdem Pirci', 'Erdem Gündüz'];
@@ -45,10 +48,10 @@ const dateFmt = (date: string) =>
   }).format(new Date(date));
 
 const distance = (d: Drive) =>
-  Math.max(0, Number(d.end_km) - Number(d.start_km));
+  d.record_type === 'fuel' ? 0 : Math.max(0, Number(d.end_km) - Number(d.start_km));
 
 const personal = (d: Drive) =>
-  Math.max(0, distance(d) - Math.max(0, Number(d.work_days)) * DAILY_KM);
+  d.record_type === 'fuel' ? 0 : Math.max(0, distance(d) - Math.max(0, Number(d.work_days)) * DAILY_KM);
 
 export default function Home() {
   const [drives, setDrives] = useState<Drive[]>([]);
@@ -62,6 +65,11 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ text: string; type: 'ok' | 'error' } | null>(null);
+
+  // Yakıt Formu State'leri
+  const [entryType, setEntryType] = useState<'drive' | 'fuel'>('drive');
+  const [fuelTl, setFuelTl] = useState('');
+  const [fuelLiters, setFuelLiters] = useState('');
 
   // Düzenleme Modal State'leri
   const [editingDrive, setEditingDrive] = useState<Drive | null>(null);
@@ -90,9 +98,10 @@ export default function Home() {
       const records = (data ?? []) as Drive[];
       setDrives(records);
 
-      if (records.length) {
-        setStart(String(records[0].end_km));
-        setEnd(String(records[0].end_km));
+      const driveRecords = records.filter(r => r.record_type !== 'fuel');
+      if (driveRecords.length) {
+        setStart(String(driveRecords[0].end_km));
+        setEnd(String(driveRecords[0].end_km));
       }
     } catch (e) {
       console.error(e);
@@ -128,7 +137,7 @@ export default function Home() {
 
   const verifyPin = (targetDriver: Driver): boolean => {
     const userPin = pins[targetDriver] || '0000';
-    const input = window.prompt(`[${targetDriver}] İşlem yapmak için 4 haneli PIN şifreni gir:`);
+    const input = window.prompt(`[${targetDriver}] İşlem yapmak için PIN şifreni gir:`);
     if (input === null) return false;
     if (input.trim() !== userPin) {
       alert('Hatalı PIN Şifresi!');
@@ -166,23 +175,39 @@ export default function Home() {
     setNewPinInput('');
   };
 
-  const latest = drives[0];
+  const latestDriveRecord = drives.find(d => d.record_type !== 'fuel');
 
   const pending = useMemo(
     () => drives.find(d => !d.is_approved && d.driver !== driver),
     [drives, driver]
   );
 
+  // Hakediş ve Yakıt Ödemesi Düşülmüş Net Bakiye Hesaplama
   const stats = useMemo(() => DRIVERS.map(name => {
-    const records = drives.filter(d => d.driver === name);
-    const km = records.reduce((sum, d) => sum + personal(d), 0);
-    const liters = km * CONSUMPTION / 100;
+    const driverRecords = drives.filter(d => d.driver === name);
+    
+    // Toplam borçlanılan kişisel kullanım KM & TL
+    const totalPersonalKm = driverRecords.reduce((sum, d) => sum + personal(d), 0);
+    const totalLitersUsed = totalPersonalKm * CONSUMPTION / 100;
+    const grossCost = totalLitersUsed * Math.max(0, Number(price) || 0);
+
+    // Cebinden ödediği yakıt kayıtları
+    const fuelRecords = driverRecords.filter(d => d.record_type === 'fuel');
+    const paidFuelTl = fuelRecords.reduce((sum, d) => sum + Number(d.fuel_amount_tl || 0), 0);
+    const paidFuelLiters = fuelRecords.reduce((sum, d) => sum + Number(d.fuel_liters || 0), 0);
+
+    // Kalan Net Borç
+    const netBalance = grossCost - paidFuelTl;
+
     return {
       name,
-      records: records.length,
-      km,
-      liters,
-      cost: liters * Math.max(0, Number(price) || 0),
+      records: driverRecords.length,
+      km: totalPersonalKm,
+      liters: totalLitersUsed,
+      grossCost,
+      paidFuelTl,
+      paidFuelLiters,
+      netBalance,
     };
   }), [drives, price]);
 
@@ -198,32 +223,62 @@ export default function Home() {
 
     if (!verifyPin(driver)) return;
 
-    const s = Number(start);
-    const en = Number(end);
-    const d = Number(days);
-
-    if (!start.trim() || !end.trim() || !days.trim() ||
-        !Number.isFinite(s) || !Number.isFinite(en) || !Number.isFinite(d) ||
-        s < 0 || en <= s || d < 0) {
-      message('Kilometre ve iş günü bilgilerini kontrol et.', 'error');
-      return;
-    }
-
     setSaving(true);
     setNotice(null);
 
     try {
-      const { error } = await supabase.from('drives').insert([{
-        driver,
-        start_km: s,
-        end_km: en,
-        work_days: d,
-        is_approved: false,
-      }]);
+      if (entryType === 'fuel') {
+        const amount = Number(fuelTl);
+        const ltr = Number(fuelLiters) || 0;
 
-      if (error) throw error;
+        if (!amount || amount <= 0) {
+          message('Lütfen geçerli bir yakıt tutarı girin.', 'error');
+          setSaving(false);
+          return;
+        }
 
-      message('Sürüş kaydedildi. Onay bekleniyor.', 'ok');
+        const { error } = await supabase.from('drives').insert([{
+          driver,
+          start_km: Number(start),
+          end_km: Number(end),
+          work_days: 0,
+          record_type: 'fuel',
+          fuel_amount_tl: amount,
+          fuel_liters: ltr,
+          is_approved: false,
+        }]);
+
+        if (error) throw error;
+        message('Yakıt alma kaydı eklendi. Onay bekleniyor.', 'ok');
+        setFuelTl('');
+        setFuelLiters('');
+
+      } else {
+        const s = Number(start);
+        const en = Number(end);
+        const d = Number(days);
+
+        if (!start.trim() || !end.trim() || !days.trim() ||
+            !Number.isFinite(s) || !Number.isFinite(en) || !Number.isFinite(d) ||
+            s < 0 || en <= s || d < 0) {
+          message('Kilometre ve iş günü bilgilerini kontrol et.', 'error');
+          setSaving(false);
+          return;
+        }
+
+        const { error } = await supabase.from('drives').insert([{
+          driver,
+          start_km: s,
+          end_km: en,
+          work_days: d,
+          record_type: 'drive',
+          is_approved: false,
+        }]);
+
+        if (error) throw error;
+        message('Sürüş kaydedildi. Onay bekleniyor.', 'ok');
+      }
+
       await load();
     } catch (e) {
       console.error(e);
@@ -294,7 +349,7 @@ export default function Home() {
 
       if (error) throw error;
 
-      message(data?.length ? 'Devir teslim onaylandı.' : 'Daha önce onaylanmış.', 'ok');
+      message(data?.length ? 'Devir/Yakıt kaydı onaylandı.' : 'Daha önce onaylanmış.', 'ok');
       await load();
     } catch (e) {
       console.error(e);
@@ -351,6 +406,9 @@ export default function Home() {
         .km-panel-icon { display: grid; place-items: center; width: 35px; height: 35px; border-radius: 10px; background: #edf2ff; color: #315fc7; }
         .km-panel-title { font-size: 14px; font-weight: 850; }
         .km-panel-caption { margin-top: 3px; color: #8a95a5; font-size: 10px; }
+        .km-type-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; background: #f1f4f9; border-radius: 12px; margin-bottom: 15px; }
+        .km-type-btn { padding: 9px; border: 0; border-radius: 9px; font-size: 12px; font-weight: 800; color: #64748b; background: transparent; transition: all .15s; }
+        .km-type-btn.active { background: white; color: #1e293b; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
         .km-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         .km-input { font-size: 15px; font-weight: 750; font-variant-numeric: tabular-nums; }
         .km-preview { margin-top: 14px; padding: 13px; border-radius: 13px; background: #f5f7fb; border: 1px solid #e9edf3; }
@@ -377,7 +435,7 @@ export default function Home() {
         .km-driver-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
         .km-driver-name { font-size: 13px; font-weight: 850; }
         .km-muted { color: #8b96a5; font-size: 10px; }
-        .km-driver-km { margin-top: 13px; font-size: 30px; font-weight: 900; letter-spacing: -1px; }
+        .km-driver-km { margin-top: 13px; font-size: 26px; font-weight: 900; letter-spacing: -1px; }
         .km-driver-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-top: 1px solid #edf0f4; margin-top: 13px; padding-top: 12px; }
         .km-driver-footer strong { display: block; margin-top: 4px; font-size: 13px; }
         .km-toolbar { display: flex; gap: 7px; padding: 12px; border-bottom: 1px solid #edf0f4; }
@@ -387,6 +445,7 @@ export default function Home() {
         .km-record:last-child { border-bottom: 0; }
         .km-record-top { display: flex; align-items: flex-start; gap: 10px; }
         .km-record-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px; background: #eef3ff; color: #315fc7; flex-shrink: 0; }
+        .km-record-icon.fuel { background: #fef3c7; color: #d97706; }
         .km-record-main { min-width: 0; flex: 1; }
         .km-record-name { font-size: 12px; font-weight: 850; }
         .km-record-date { margin-top: 4px; font-size: 10px; color: #8a95a5; }
@@ -457,16 +516,23 @@ export default function Home() {
           <>
             {pending && (
               <section className="km-approval">
-                <div className="km-approval-title"><Clock3 size={17} /> Devir teslim bekliyor</div>
+                <div className="km-approval-title"><Clock3 size={17} /> Devir teslim / Yakıt Onayı bekliyor</div>
                 <div className="km-approval-text">
-                  <strong>{pending.driver}</strong> aracı şu kilometrede bıraktı:
+                  <strong>{pending.driver}</strong> {pending.record_type === 'fuel' ? 'cebinden yakıt aldı:' : 'aracı şu göstergede bıraktı:'}
                 </div>
-                <div className="km-approval-odometer">{fmt(Number(pending.end_km))} KM</div>
+                {pending.record_type === 'fuel' ? (
+                  <div className="km-approval-odometer">
+                    {money(Number(pending.fuel_amount_tl))} TL
+                    {pending.fuel_liters ? ` (${pending.fuel_liters} Lt)` : ''}
+                  </div>
+                ) : (
+                  <div className="km-approval-odometer">{fmt(Number(pending.end_km))} KM</div>
+                )}
                 <div className="km-approval-text">
-                  {fmt(distance(pending))} KM sürüş · {pending.work_days} iş günü
+                  {pending.record_type === 'fuel' ? 'Borçtan düşülecek.' : `${fmt(distance(pending))} KM sürüş · ${pending.work_days} iş günü`}
                 </div>
                 <button className="km-button secondary" disabled={saving} onClick={() => void approve(pending)}>
-                  <CheckCircle2 size={17} /> Devir teslimi onayla (PIN Gerekli)
+                  <CheckCircle2 size={17} /> Kaydı Onayla (PIN Gerekli)
                 </button>
               </section>
             )}
@@ -485,20 +551,20 @@ export default function Home() {
               <div className="km-odometer">
                 <div className="km-odometer-label"><Gauge size={15} /> GÜNCEL KİLOMETRE</div>
                 <div className="km-odometer-number">
-                  {loading && !latest ? '...' : latest ? fmt(Number(latest.end_km)) : '—'}
+                  {loading && !latestDriveRecord ? '...' : latestDriveRecord ? fmt(Number(latestDriveRecord.end_km)) : '—'}
                   <small>KM</small>
                 </div>
                 <div className="km-odometer-bottom">
                   <div>
                     <div style={{ opacity: .7, fontSize: 10 }}>Son kaydı yapan</div>
                     <div style={{ marginTop: 4, color: '#fff', fontWeight: 750 }}>
-                      {latest?.driver ?? 'Henüz kayıt yok'}
+                      {latestDriveRecord?.driver ?? 'Henüz kayıt yok'}
                     </div>
                   </div>
-                  {latest && (
-                    <span className={`km-pill ${latest.is_approved ? 'ok' : 'wait'}`}>
-                      {latest.is_approved ? <CheckCircle2 size={12} /> : <Clock3 size={12} />}
-                      {latest.is_approved ? 'Onaylandı' : 'Onay bekliyor'}
+                  {latestDriveRecord && (
+                    <span className={`km-pill ${latestDriveRecord.is_approved ? 'ok' : 'wait'}`}>
+                      {latestDriveRecord.is_approved ? <CheckCircle2 size={12} /> : <Clock3 size={12} />}
+                      {latestDriveRecord.is_approved ? 'Onaylandı' : 'Onay bekliyor'}
                     </span>
                   )}
                 </div>
@@ -506,67 +572,104 @@ export default function Home() {
             </section>
 
             <section className="km-section">
-              <div className="km-section-heading">
-                <div>
-                  <h2 className="km-section-title">Yeni sürüş</h2>
-                  <div className="km-section-sub">Kilometreyi gir, kaydı tamamla.</div>
-                </div>
-              </div>
-
               <form className="km-panel" onSubmit={submit}>
-                <div className="km-panel-heading">
-                  <div className="km-panel-icon"><Plus size={19} /></div>
-                  <div>
-                    <div className="km-panel-title">Sürüş / devir kaydı</div>
-                    <div className="km-panel-caption">{driver} adına kaydedilecek</div>
-                  </div>
+                <div className="km-type-toggle">
+                  <button
+                    type="button"
+                    className={`km-type-btn ${entryType === 'drive' ? 'active' : ''}`}
+                    onClick={() => setEntryType('drive')}
+                  >
+                    🚗 Sürüş / Devir Kaydı
+                  </button>
+                  <button
+                    type="button"
+                    className={`km-type-btn ${entryType === 'fuel' ? 'active' : ''}`}
+                    onClick={() => setEntryType('fuel')}
+                  >
+                    ⛽ Yakıt Alma (Borç Düş)
+                  </button>
                 </div>
 
-                <div className="km-form-grid">
-                  <div>
-                    <label className="km-label" htmlFor="km-start">Başlangıç KM</label>
-                    <input className="km-input" id="km-start" type="number" min="0" step="1" inputMode="numeric" value={start} onChange={e => setStart(e.target.value)} required />
-                  </div>
-                  <div>
-                    <label className="km-label" htmlFor="km-end">Bitiş KM</label>
-                    <input className="km-input" id="km-end" type="number" min="0" step="1" inputMode="numeric" value={end} onChange={e => setEnd(e.target.value)} required />
-                  </div>
-                </div>
+                {entryType === 'drive' ? (
+                  <>
+                    <div className="km-form-grid">
+                      <div>
+                        <label className="km-label" htmlFor="km-start">Başlangıç KM</label>
+                        <input className="km-input" id="km-start" type="number" min="0" step="1" inputMode="numeric" value={start} onChange={e => setStart(e.target.value)} required />
+                      </div>
+                      <div>
+                        <label className="km-label" htmlFor="km-end">Bitiş KM</label>
+                        <input className="km-input" id="km-end" type="number" min="0" step="1" inputMode="numeric" value={end} onChange={e => setEnd(e.target.value)} required />
+                      </div>
+                    </div>
 
-                <div style={{ marginTop: 15 }}>
-                  <label className="km-label" htmlFor="km-days">İş günü sayısı</label>
-                  <input className="km-input" id="km-days" type="number" min="0" step="0.5" inputMode="decimal" value={days} onChange={e => setDays(e.target.value)} required />
-                  <div className="km-section-sub" style={{ marginTop: 6 }}>Günlük {DAILY_KM} KM şirket kullanım hakkı.</div>
-                </div>
+                    <div style={{ marginTop: 15 }}>
+                      <label className="km-label" htmlFor="km-days">İş günü sayısı</label>
+                      <input className="km-input" id="km-days" type="number" min="0" step="0.5" inputMode="decimal" value={days} onChange={e => setDays(e.target.value)} required />
+                      <div className="km-section-sub" style={{ marginTop: 6 }}>Günlük {DAILY_KM} KM şirket kullanım hakkı.</div>
+                    </div>
 
-                <div className="km-preview">
-                  <div className="km-preview-title">Sürüş özeti</div>
-                  <div className="km-preview-grid">
+                    <div className="km-preview">
+                      <div className="km-preview-title">Sürüş özeti</div>
+                      <div className="km-preview-grid">
+                        <div>
+                          <div className="km-preview-label">Toplam mesafe</div>
+                          <div className="km-preview-value">{fmt(tripKm)} KM</div>
+                        </div>
+                        <div>
+                          <div className="km-preview-label">Şirket hakkı</div>
+                          <div className="km-preview-value km-green">{fmt(allowance)} KM</div>
+                        </div>
+                        <div>
+                          <div className="km-preview-label">Kişisel kilometre</div>
+                          <div className="km-preview-value km-amber">{fmt(personalKm)} KM</div>
+                        </div>
+                        <div>
+                          <div className="km-preview-label">Tahmini yakıt tutarı</div>
+                          <div className="km-preview-value km-blue">{money(estimate)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="km-form-grid">
                     <div>
-                      <div className="km-preview-label">Toplam mesafe</div>
-                      <div className="km-preview-value">{fmt(tripKm)} KM</div>
+                      <label className="km-label" htmlFor="fuel-tl">Ödenen Tutar (TL)</label>
+                      <input
+                        className="km-input"
+                        id="fuel-tl"
+                        type="number"
+                        min="1"
+                        step="1"
+                        inputMode="numeric"
+                        placeholder="Örn: 1500"
+                        value={fuelTl}
+                        onChange={e => setFuelTl(e.target.value)}
+                        required
+                      />
                     </div>
                     <div>
-                      <div className="km-preview-label">Şirket hakkı</div>
-                      <div className="km-preview-value km-green">{fmt(allowance)} KM</div>
-                    </div>
-                    <div>
-                      <div className="km-preview-label">Kişisel kilometre</div>
-                      <div className="km-preview-value km-amber">{fmt(personalKm)} KM</div>
-                    </div>
-                    <div>
-                      <div className="km-preview-label">Tahmini yakıt tutarı</div>
-                      <div className="km-preview-value km-blue">{money(estimate)}</div>
+                      <label className="km-label" htmlFor="fuel-liters">Alınan Litre (Opsiyonel)</label>
+                      <input
+                        className="km-input"
+                        id="fuel-liters"
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        inputMode="decimal"
+                        placeholder="Örn: 32.5"
+                        value={fuelLiters}
+                        onChange={e => setFuelLiters(e.target.value)}
+                      />
                     </div>
                   </div>
-                </div>
+                )}
 
                 <button className="km-button" type="submit" disabled={saving || loading}>
                   {saving ? <RefreshCw size={17} /> : <CheckCircle2 size={18} />}
-                  {saving ? 'Kaydediliyor...' : 'Sürüşü kaydet (PIN Soru)'}
+                  {saving ? 'Kaydediliyor...' : entryType === 'drive' ? 'Sürüşü kaydet (PIN Soru)' : 'Yakıt Ödemesini Ekle'}
                   {!saving && <ArrowRight size={16} />}
                 </button>
-                <div className="km-help">Kayıt diğer kullanıcının devir onayına sunulur.</div>
               </form>
             </section>
           </>
@@ -576,7 +679,7 @@ export default function Home() {
           <section className="km-section">
             <div className="km-section-heading">
               <div>
-                <h2 className="km-section-title">Sürüş geçmişi</h2>
+                <h2 className="km-section-title">Sürüş ve Yakıt geçmişi</h2>
                 <div className="km-section-sub">{drives.length} kayıt · Tüm kullanıcılar</div>
               </div>
               <button className="km-icon-button" onClick={() => void load()} aria-label="Yenile">
@@ -598,30 +701,49 @@ export default function Home() {
               </div>
 
               {loading ? <div className="km-empty">Kayıtlar yükleniyor...</div> :
-                history.length === 0 ? <div className="km-empty"><History size={26} style={{ margin: '0 auto 10px' }} /><br />Bu filtrede sürüş bulunamadı.</div> :
+                history.length === 0 ? <div className="km-empty"><History size={26} style={{ margin: '0 auto 10px' }} /><br />Bu filtrede kayıt bulunamadı.</div> :
                 history.map(d => (
                   <article className="km-record" key={d.id}>
                     <div className="km-record-top">
-                      <div className="km-record-icon"><Car size={18} /></div>
+                      <div className={`km-record-icon ${d.record_type === 'fuel' ? 'fuel' : ''}`}>
+                        {d.record_type === 'fuel' ? <Fuel size={18} /> : <Car size={18} />}
+                      </div>
                       <div className="km-record-main">
-                        <div className="km-record-name">{d.driver}</div>
+                        <div className="km-record-name">
+                          {d.driver} {d.record_type === 'fuel' ? '(Yakıt Aldı)' : ''}
+                        </div>
                         <div className="km-record-date">{dateFmt(d.created_at)}</div>
                       </div>
-                      <div className="km-record-distance">{fmt(distance(d))}<span style={{ fontSize: 10, color: '#8792a1', marginLeft: 3 }}>KM</span></div>
+                      <div className="km-record-distance">
+                        {d.record_type === 'fuel' ? (
+                          <span className="km-green">-{money(Number(d.fuel_amount_tl))}</span>
+                        ) : (
+                          <>{fmt(distance(d))}<span style={{ fontSize: 10, color: '#8792a1', marginLeft: 3 }}>KM</span></>
+                        )}
+                      </div>
                     </div>
-                    <div className="km-record-details">
-                      <div><span className="km-muted">Başlangıç</span><strong>{fmt(Number(d.start_km))} KM</strong></div>
-                      <div><span className="km-muted">Bitiş</span><strong>{fmt(Number(d.end_km))} KM</strong></div>
-                      <div><span className="km-muted">İş günü</span><strong>{d.work_days} gün</strong></div>
-                      <div><span className="km-muted">Kişisel KM</span><strong>{fmt(personal(d))} KM</strong></div>
-                    </div>
+
+                    {d.record_type === 'fuel' ? (
+                      <div className="km-record-details">
+                        <div><span className="km-muted">Ödenen Tutar</span><strong className="km-green">{money(Number(d.fuel_amount_tl))}</strong></div>
+                        <div><span className="km-muted">Alınan Miktar</span><strong>{d.fuel_liters ? `${d.fuel_liters} Lt` : '—'}</strong></div>
+                      </div>
+                    ) : (
+                      <div className="km-record-details">
+                        <div><span className="km-muted">Başlangıç</span><strong>{fmt(Number(d.start_km))} KM</strong></div>
+                        <div><span className="km-muted">Bitiş</span><strong>{fmt(Number(d.end_km))} KM</strong></div>
+                        <div><span className="km-muted">İş günü</span><strong>{d.work_days} gün</strong></div>
+                        <div><span className="km-muted">Kişisel KM</span><strong>{fmt(personal(d))} KM</strong></div>
+                      </div>
+                    )}
+
                     <div className="km-record-bottom">
                       <span className={`km-pill ${d.is_approved ? 'ok' : 'wait'}`}>
                         {d.is_approved ? <CheckCircle2 size={12} /> : <Clock3 size={12} />}
                         {d.is_approved ? 'Onaylandı' : 'Onay bekliyor'}
                       </span>
 
-                      {!d.is_approved && d.driver === driver && (
+                      {!d.is_approved && d.driver === driver && d.record_type !== 'fuel' && (
                         <button className="km-edit-btn" onClick={() => startEdit(d)}>
                           <Edit3 size={13} /> Düzenle
                         </button>
@@ -646,15 +768,15 @@ export default function Home() {
           <section className="km-section">
             <div className="km-section-heading">
               <div>
-                <h2 className="km-section-title">Hakediş ve yakıt</h2>
-                <div className="km-section-sub">Sürücü bazında birikimli hesap</div>
+                <h2 className="km-section-title">Hakediş & Yakıt Bakiyeleri</h2>
+                <div className="km-section-sub">Net hesaplanan kişisel borç tutarları</div>
               </div>
             </div>
 
             <div className="km-panel" style={{ marginBottom: 14 }}>
               <label className="km-label" htmlFor="km-price">Yakıt litre fiyatı (TL)</label>
               <input className="km-input" id="km-price" type="number" min="0" step="0.01" inputMode="decimal" value={price} onChange={e => setPrice(e.target.value)} />
-              <div className="km-section-sub" style={{ marginTop: 7 }}>Bu fiyat yalnızca tahmini hesaplamayı etkiler.</div>
+              <div className="km-section-sub" style={{ marginTop: 7 }}>Hesaplama: (Kişisel KM Tüketim Tutarı) - (Cebinden Ödenen Yakıtlar)</div>
             </div>
 
             {stats.map(s => (
@@ -664,23 +786,26 @@ export default function Home() {
                     <div className="km-panel-icon"><UserRound size={17} /></div>
                     <div>
                       <div className="km-driver-name">{s.name}</div>
-                      <div className="km-muted" style={{ marginTop: 3 }}>{s.records} sürüş kaydı</div>
+                      <div className="km-muted" style={{ marginTop: 3 }}>{s.records} Toplam İşlem</div>
                     </div>
                   </div>
                   {driver === s.name && <span className="km-pill" style={{ background: '#edf2ff', color: '#315fc7' }}>Sen</span>}
                 </div>
-                <div className="km-driver-km">{fmt(s.km)} <span style={{ fontSize: 12, color: '#8792a1' }}>KM</span></div>
-                <div className="km-muted">Toplam kişisel kullanım</div>
+
+                <div className="km-driver-km" style={{ fontSize: 22, marginTop: 10 }}>
+                  Kalan Net Borç: <span className={s.netBalance > 0 ? 'km-amber' : 'km-green'}>{money(s.netBalance)}</span>
+                </div>
+
                 <div className="km-driver-footer">
-                  <div><span className="km-muted">Tahmini yakıt</span><strong>{fmt(s.liters)} Lt</strong></div>
-                  <div><span className="km-muted">Yakıt karşılığı</span><strong className="km-blue">{money(s.cost)}</strong></div>
+                  <div><span className="km-muted">Kişisel Kullanım</span><strong>{fmt(s.km)} KM ({money(s.grossCost)})</strong></div>
+                  <div><span className="km-muted">Cebinden Aldığı Yakıt</span><strong className="km-green">{money(s.paidFuelTl)} ({fmt(s.paidFuelLiters)} Lt)</strong></div>
                 </div>
               </article>
             ))}
 
             <div className="km-panel" style={{ fontSize: 11, color: '#748091', lineHeight: 1.7 }}>
               <ShieldCheck size={16} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 6 }} />
-              Her kayıtta iş günü × {DAILY_KM} KM şirket hakkı düşülür. Negatif kişisel kullanım sıfır kabul edilir. Yakıt tahmini {CONSUMPTION} L/100 KM tüketimle hesaplanır.
+              Kişisel kullanım hakedişinden cebinizden ödeyip sisteme girdiğiniz onaylı yakıt ödemeleri otomatik düşülür.
             </div>
           </section>
         )}
