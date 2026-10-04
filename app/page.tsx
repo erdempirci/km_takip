@@ -25,7 +25,7 @@ interface Drive {
 
 const DRIVERS: Driver[] = ['Erdem Pirci', 'Erdem Gündüz'];
 const DAILY_KM = 60;
-const CONSUMPTION = 7.5; // 7.5 Lt / 100 KM
+const CONSUMPTION = 7.5; // 7.5 Lt / 100 KM (1 Lt = 13.33 KM)
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 }).format(n);
@@ -163,22 +163,22 @@ export default function Home() {
     [drives, driver]
   );
 
-  // Litre Bazlı Bakiye Hesaplama
+  // Kalan KM ve Litre Hesaplama
   const stats = useMemo(() => DRIVERS.map(name => {
     const driverRecords = drives.filter(d => d.driver === name);
     
-    // Sürüşlerden doğan kişisel borçlanma
+    // Sürüşlerden doğan kişisel borçlanan KM
     const totalPersonalKm = driverRecords.reduce((sum, d) => sum + personalKmCalc(d), 0);
     const totalLitersOwed = (totalPersonalKm * CONSUMPTION) / 100;
 
-    // Alınan yakıtlar (Litre)
+    // Alınan yakıtlar (Litre) ve bunun karşıladığı KM (1 Lt = 13.33 KM)
     const fuelRecords = driverRecords.filter(d => d.record_type === 'fuel');
     const totalLitersBought = fuelRecords.reduce((sum, d) => sum + Number(d.fuel_liters || 0), 0);
+    const totalKmCreditFromFuel = (totalLitersBought * 100) / CONSUMPTION;
 
-    // Kalan Net Borç (Litre)
+    // Kalan Net KM ve Litre
+    const netKmBalance = totalPersonalKm - totalKmCreditFromFuel;
     const netLitersBalance = totalLitersOwed - totalLitersBought;
-    // Net borcun denk geldiği KM
-    const netKmEquivalent = (netLitersBalance * 100) / CONSUMPTION;
 
     return {
       name,
@@ -186,8 +186,8 @@ export default function Home() {
       km: totalPersonalKm,
       litersOwed: totalLitersOwed,
       litersBought: totalLitersBought,
+      netKmBalance,
       netLitersBalance,
-      netKmEquivalent,
     };
   }), [drives]);
 
@@ -499,7 +499,7 @@ export default function Home() {
                   <div className="km-approval-odometer">{fmt(Number(pending.end_km))} KM</div>
                 )}
                 <div className="km-approval-text">
-                  {pending.record_type === 'fuel' ? 'Litre borcundan düşülecek.' : `${fmt(distance(pending))} KM sürüş · ${pending.work_days} iş günü`}
+                  {pending.record_type === 'fuel' ? 'Kişisel KM borcundan düşülecek.' : `${fmt(distance(pending))} KM sürüş · ${pending.work_days} iş günü`}
                 </div>
                 <button className="km-button secondary" disabled={saving} onClick={() => void approve(pending)}>
                   <CheckCircle2 size={17} /> Kaydı Onayla (PIN Gerekli)
@@ -616,7 +616,7 @@ export default function Home() {
                       onChange={e => setFuelLiters(e.target.value)}
                       required
                     />
-                    <div className="km-section-sub" style={{ marginTop: 6 }}>Girilen bu litre doğrudan kişisel borcunuzdan düşülecektir.</div>
+                    <div className="km-section-sub" style={{ marginTop: 6 }}>Girilen her 1 Litre yakıt, 13,3 KM kişisel kullanım borcunuzu siler.</div>
                   </div>
                 )}
 
@@ -721,8 +721,8 @@ export default function Home() {
           <section className="km-section">
             <div className="km-section-heading">
               <div>
-                <h2 className="km-section-title">Litre Bakiyeleri & Hakediş</h2>
-                <div className="km-section-sub">Saf Litre ($L$) bazlı borç-alacak hesabı</div>
+                <h2 className="km-section-title">Kalan KM / Litre Bakiyeleri</h2>
+                <div className="km-section-sub">Saf KM ve Litre bazlı bakiye takibi</div>
               </div>
             </div>
 
@@ -739,23 +739,26 @@ export default function Home() {
                   {driver === s.name && <span className="km-pill" style={{ background: '#edf2ff', color: '#315fc7' }}>Sen</span>}
                 </div>
 
-                <div className="km-driver-km">
-                  Kalan Borç: <span className={s.netLitersBalance > 0 ? 'km-amber' : 'km-green'}>{fmt(s.netLitersBalance)} Lt</span>
+                <div className="km-driver-km" style={{ marginTop: 12 }}>
+                  Kalan KM Borcu:{' '}
+                  <span className={s.netKmBalance > 0 ? 'km-amber' : 'km-green'}>
+                    {fmt(s.netKmBalance)} KM
+                  </span>
                 </div>
-                <div className="km-muted" style={{ marginTop: 4, fontSize: 11 }}>
-                  *(Yaklaşık <b>{fmt(Math.max(0, s.netKmEquivalent))} KM</b> kişisel sürüse denk gelir)*
+                <div className="km-muted" style={{ marginTop: 4, fontSize: 12 }}>
+                  *(Litre Karşılığı: <b className="km-blue">{fmt(s.netLitersBalance)} Lt</b>)*
                 </div>
 
                 <div className="km-driver-footer">
-                  <div><span className="km-muted">Kişisel Kullanım</span><strong>{fmt(s.km)} KM ({fmt(s.litersOwed)} Lt)</strong></div>
-                  <div><span className="km-muted">Depoya Eklediği</span><strong className="km-green">{fmt(s.litersBought)} Lt</strong></div>
+                  <div><span className="km-muted">Kişisel Sürüş</span><strong>{fmt(s.km)} KM ({fmt(s.litersOwed)} Lt)</strong></div>
+                  <div><span className="km-muted">Depoya Eklenen</span><strong className="km-green">{fmt(s.litersBought)} Lt ({fmt((s.litersBought * 100) / CONSUMPTION)} KM)</strong></div>
                 </div>
               </article>
             ))}
 
             <div className="km-panel" style={{ fontSize: 11, color: '#748091', lineHeight: 1.7 }}>
               <ShieldCheck size={16} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 6 }} />
-              İş günü düşüldükten sonra kalan kişisel KM, <b>7,5 L / 100 KM</b> oranıyla tam olarak Litre borcuna dönüştürülür. Depoya alınan yakıt Litresi doğrudan bu borçtan düşer.
+              Hesaplama Kuralı: Günlük <b>60 KM</b> şirket hakkı düşülür. Kalan kişisel KM, <b>7,5 L / 100 KM</b> tüketim kuralı ile Litreye dönüştürülür. Depoya cebinizden aldığınız her Litre yakıt kişisel KM borcunuzdan eksiltilir.
             </div>
           </section>
         )}
