@@ -48,8 +48,8 @@ const personalKmCalc = (d: Drive) =>
 export default function Home() {
   const [drives, setDrives] = useState<Drive[]>([]);
   const [driver, setDriver] = useState<Driver>('Erdem Pirci');
-  const [start, setStart] = useState('11000');
-  const [end, setEnd] = useState('11000');
+  const [start, setStart] = useState('0');
+  const [end, setEnd] = useState('');
   const [days, setDays] = useState('1');
   const [tab, setTab] = useState<'home' | 'history' | 'earnings'>('home');
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved'>('all');
@@ -91,8 +91,12 @@ export default function Home() {
 
       const driveRecords = records.filter(r => r.record_type !== 'fuel');
       if (driveRecords.length) {
-        setStart(String(driveRecords[0].end_km));
-        setEnd(String(driveRecords[0].end_km));
+        const currentOdometer = String(driveRecords[0].end_km);
+        setStart(currentOdometer);
+        setEnd(currentOdometer);
+      } else {
+        setStart('11000');
+        setEnd('11000');
       }
     } catch (e) {
       console.error(e);
@@ -220,7 +224,7 @@ export default function Home() {
         const { error } = await supabase.from('drives').insert([{
           driver,
           start_km: Number(start),
-          end_km: Number(end),
+          end_km: Number(start), // Yakıt kaydı km'yi değiştirmez
           work_days: 0,
           record_type: 'fuel',
           fuel_liters: ltr,
@@ -239,7 +243,7 @@ export default function Home() {
         if (!start.trim() || !end.trim() || !days.trim() ||
             !Number.isFinite(s) || !Number.isFinite(en) || !Number.isFinite(d) ||
             s < 0 || en <= s || d < 0) {
-          message('Kilometre ve iş günü bilgilerini kontrol et.', 'error');
+          message('Bitiş gösterge KM en az başlangıç KM kadar olmalıdır.', 'error');
           setSaving(false);
           return;
         }
@@ -384,6 +388,7 @@ export default function Home() {
         .km-label { display: block; margin-bottom: 7px; color: #758091; font-size: 11px; font-weight: 750; }
         .km-select, .km-input { width: 100%; min-height: 47px; padding: 0 12px; border: 1px solid #dfe5ec; border-radius: 11px; outline: none; background: #fff; color: #202b3b; font-size: 14px; }
         .km-select:focus, .km-input:focus { border-color: #4775db; box-shadow: 0 0 0 3px #4775db17; }
+        .km-input:disabled { background: #f1f5f9; color: #64748b; cursor: not-allowed; }
         .km-content { padding: 20px 16px; }
         .km-notice { display: flex; gap: 9px; align-items: flex-start; padding: 12px; border-radius: 12px; margin-bottom: 15px; font-size: 12px; line-height: 1.5; }
         .km-notice.ok { color: #166b48; background: #eaf8f0; border: 1px solid #c9edd9; }
@@ -402,7 +407,6 @@ export default function Home() {
         .km-pill.ok { color: #b7f5d0; background: #16825430; }
         .km-pill.wait { color: #ffdc99; background: #d88c2630; }
         .km-panel { border: 1px solid #e6eaf0; border-radius: 18px; background: white; padding: 16px; box-shadow: 0 3px 12px #15284705; }
-        .km-panel-heading { display: flex; align-items: center; gap: 10px; padding-bottom: 14px; margin-bottom: 15px; border-bottom: 1px solid #edf0f4; }
         .km-type-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; background: #f1f4f9; border-radius: 12px; margin-bottom: 15px; }
         .km-type-btn { padding: 9px; border: 0; border-radius: 9px; font-size: 12px; font-weight: 800; color: #64748b; background: transparent; transition: all .15s; }
         .km-type-btn.active { background: white; color: #1e293b; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
@@ -423,7 +427,6 @@ export default function Home() {
         .km-button.outline { background: transparent; border: 1px solid #dcdfe5; color: #475467; }
         .km-edit-btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #e2e8f0; background: #f8fafc; color: #475569; padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 700; }
         .km-pin-btn { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #e2e8f0; background: #fff; color: #475569; padding: 8px 12px; border-radius: 10px; font-size: 11px; font-weight: 750; }
-        .km-help { margin-top: 10px; font-size: 10px; color: #929cac; line-height: 1.5; text-align: center; }
         .km-approval { padding: 15px; border: 1px solid #f0d8a8; border-radius: 16px; background: #fffaf0; margin-bottom: 22px; }
         .km-approval-title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 850; color: #8a5a10; }
         .km-approval-text { font-size: 12px; line-height: 1.55; color: #755c32; margin-top: 9px; }
@@ -587,12 +590,12 @@ export default function Home() {
                   <>
                     <div className="km-form-grid">
                       <div>
-                        <label className="km-label" htmlFor="km-start">Başlangıç KM</label>
-                        <input className="km-input" id="km-start" type="number" min="0" step="1" inputMode="numeric" value={start} onChange={e => setStart(e.target.value)} required />
+                        <label className="km-label" htmlFor="km-start">Başlangıç KM (Otomatik)</label>
+                        <input className="km-input" id="km-start" type="number" value={start} disabled />
                       </div>
                       <div>
-                        <label className="km-label" htmlFor="km-end">Bitiş KM</label>
-                        <input className="km-input" id="km-end" type="number" min="0" step="1" inputMode="numeric" value={end} onChange={e => setEnd(e.target.value)} required />
+                        <label className="km-label" htmlFor="km-end">Bitiş Gösterge KM</label>
+                        <input className="km-input" id="km-end" type="number" min={start} step="1" inputMode="numeric" value={end} onChange={e => setEnd(e.target.value)} required placeholder="Örn: 11250" />
                       </div>
                     </div>
 
@@ -814,7 +817,7 @@ export default function Home() {
                   <>
                     <div style={{ marginBottom: 12 }}>
                       <label className="km-label">Başlangıç KM (Sabit)</label>
-                      <input className="km-input" value={editingDrive.start_km} disabled style={{ background: '#f1f5f9' }} />
+                      <input className="km-input" value={editingDrive.start_km} disabled />
                     </div>
                     <div style={{ marginBottom: 12 }}>
                       <label className="km-label">Bitiş KM (Gösterge)</label>
